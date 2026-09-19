@@ -261,44 +261,64 @@
       return;
     }
 
-    // Locate DeepSeek toolbar row (where DeepThink and Search pills live)
-    let targetContainer = null;
-    let insertAfterEl = null;
+    // 1. Locate Search and DeepThink buttons/elements
+    let searchEl = null;
+    let deepThinkEl = null;
 
-    // Search by text "DeepThink" or "Search"
-    const allButtons = document.querySelectorAll('button, div[role="button"], span');
-    for (const el of allButtons) {
+    const allCandidates = document.querySelectorAll('button, div[role="button"], span');
+    for (const el of allCandidates) {
       const txt = (el.textContent || '').trim();
-      if (txt === 'DeepThink' || txt === 'Search' || txt.includes('DeepThink') || txt.includes('Search')) {
-        const btn = el.closest('button') || el.closest('[role="button"]') || el;
-        if (btn && btn.parentElement) {
-          targetContainer = btn.parentElement;
-          // Prefer inserting right after Search
-          if (txt.includes('Search')) {
-            insertAfterEl = btn;
-            break;
-          } else {
-            insertAfterEl = btn;
-          }
-        }
+      if (!searchEl && (txt === 'Search' || txt.startsWith('Search'))) {
+        searchEl = el.closest('button') || el.closest('[role="button"]') || el;
+      }
+      if (!deepThinkEl && (txt === 'DeepThink' || txt.startsWith('DeepThink'))) {
+        deepThinkEl = el.closest('button') || el.closest('[role="button"]') || el;
+      }
+      if (searchEl && deepThinkEl) break;
+    }
+
+    let targetToolbar = null;
+    let insertAfterPill = null;
+
+    if (searchEl && deepThinkEl) {
+      // Climb up from searchEl until its parent contains deepThinkEl
+      // That parent is the common toolbar row holding all pills!
+      let curr = searchEl;
+      while (curr && curr.parentElement && !curr.parentElement.contains(deepThinkEl)) {
+        curr = curr.parentElement;
+      }
+      if (curr && curr.parentElement) {
+        targetToolbar = curr.parentElement;
+        insertAfterPill = curr; // The outermost wrapper of Search pill in the toolbar
+      }
+    } else if (searchEl || deepThinkEl) {
+      const ref = searchEl || deepThinkEl;
+      let curr = ref;
+      // Climb up past single-child wrappers to find the multi-child toolbar row
+      while (curr && curr.parentElement && curr.parentElement !== document.body && curr.parentElement.children.length === 1) {
+        curr = curr.parentElement;
+      }
+      if (curr && curr.parentElement) {
+        targetToolbar = curr.parentElement;
+        insertAfterPill = curr;
       }
     }
 
     // Fallback: look near chat textarea
-    if (!targetContainer) {
+    if (!targetToolbar) {
       const textarea = document.querySelector('textarea, [contenteditable="true"]');
       if (textarea) {
         const form = textarea.closest('form') || textarea.parentElement?.parentElement;
         if (form) {
           const row = form.querySelector('[class*="tool"], [class*="footer"], [class*="action"], [class*="bottom"]');
-          if (row) targetContainer = row;
+          if (row) targetToolbar = row;
         }
       }
     }
 
-    if (!targetContainer) return;
+    if (!targetToolbar) return;
 
-    // Create the pill toggle button
+    // Create the independent pill toggle button
     const toggleBtn = document.createElement('button');
     toggleBtn.id = 'ds-bridge-auto-toggle';
     toggleBtn.className = 'ds-bridge-pill-toggle ' + (appSettings.autoSend ? 'active' : '');
@@ -340,10 +360,10 @@
       }
     });
 
-    if (insertAfterEl && insertAfterEl.nextSibling) {
-      targetContainer.insertBefore(toggleBtn, insertAfterEl.nextSibling);
+    if (insertAfterPill && insertAfterPill.nextSibling) {
+      targetToolbar.insertBefore(toggleBtn, insertAfterPill.nextSibling);
     } else {
-      targetContainer.appendChild(toggleBtn);
+      targetToolbar.appendChild(toggleBtn);
     }
 
     console.log('[DeepSeek Bridge] Injected Auto-Send pill toggle in DeepSeek toolbar!');
