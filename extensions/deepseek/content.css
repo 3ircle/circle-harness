@@ -423,6 +423,124 @@
   font-family: monospace !important;
 }
 
+/* Tool Approval Dialog Card */
+.ds-bridge-tool-approval-card {
+  position: fixed !important;
+  bottom: 90px !important;
+  right: 24px !important;
+  width: 380px !important;
+  background: #181d28 !important;
+  border: 1px solid #f59e0b !important;
+  border-radius: 14px !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7) !important;
+  z-index: 1000000 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 16px !important;
+  color: #f1f5f9 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Vazirmatn", sans-serif !important;
+  direction: rtl !important;
+  animation: slideUpFade 0.25s ease !important;
+  box-sizing: border-box !important;
+}
+
+@keyframes slideUpFade {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ds-bridge-tool-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  border-bottom: 1px solid #2d3748 !important;
+  padding-bottom: 8px !important;
+}
+
+.ds-bridge-tool-title {
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+  color: #fbbf24 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.ds-bridge-tool-badge {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  padding: 2px 8px !important;
+  border-radius: 6px !important;
+  font-family: monospace !important;
+  font-size: 11px !important;
+}
+
+.ds-bridge-tool-params {
+  background: #0f172a !important;
+  border: 1px solid #334155 !important;
+  border-radius: 6px !important;
+  padding: 8px 10px !important;
+  font-family: monospace !important;
+  font-size: 11px !important;
+  color: #93c5fd !important;
+  max-height: 120px !important;
+  overflow-y: auto !important;
+  direction: ltr !important;
+  text-align: left !important;
+  white-space: pre-wrap !important;
+  word-break: break-all !important;
+}
+
+.ds-bridge-tool-reason {
+  font-size: 11.5px !important;
+  color: #94a3b8 !important;
+  line-height: 1.4 !important;
+}
+
+.ds-bridge-tool-actions {
+  display: flex !important;
+  gap: 8px !important;
+  margin-top: 4px !important;
+}
+
+.ds-bridge-tool-btn-approve {
+  flex: 1 !important;
+  background: #10b981 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 7px 12px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  transition: background 0.2s !important;
+}
+
+.ds-bridge-tool-btn-approve:hover {
+  background: #059669 !important;
+}
+
+.ds-bridge-tool-btn-deny {
+  background: transparent !important;
+  color: #ef4444 !important;
+  border: 1px solid #ef4444 !important;
+  border-radius: 6px !important;
+  padding: 7px 12px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: background 0.2s !important;
+}
+
+.ds-bridge-tool-btn-deny:hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+}
+
 /* Project Setup Modal Dialog */
 .ds-bridge-modal-overlay {
   position: fixed;

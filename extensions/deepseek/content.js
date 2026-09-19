@@ -355,8 +355,187 @@
         setWidgetState('online');
         const preview = cleanMsg.length > 40 ? cleanMsg.substring(0, 40) + '...' : cleanMsg;
         showToast(`✓ پیام کامل به سرور ارسال شد (${preview})`, 'success');
+
+        // Handle tool execution or approval request from backend
+        if (response.data && response.data.tool_execution) {
+          handleToolExecutionFromBackend(response.data.tool_execution);
+        }
       }
     });
+  }
+
+  // --- Tool Execution & Approval Flow ---
+  function handleToolExecutionFromBackend(toolExec) {
+    if (!toolExec || !toolExec.has_tool_call) return;
+
+    // Case 1: Tool was automatically executed by backend (bypass_permissions / safe read)
+    if (toolExec.action === 'executed') {
+      const toolName = toolExec.tool || 'unknown';
+      console.log('[DeepSeek Bridge] Tool executed automatically:', toolName);
+      showToast(`⚡ ابزار "${toolName}" اجرا شد و پاسخ به چت ارسال می‌شود...`, 'success', 3000);
+
+      setTimeout(() => {
+        sendReplyToDeepSeekChat(toolExec.chat_reply);
+      }, 700);
+      return;
+    }
+
+    // Case 2: Tool requires user confirmation
+    if (toolExec.action === 'requires_approval') {
+      console.log('[DeepSeek Bridge] Tool requires approval:', toolExec.tool, toolExec.params);
+      showToolApprovalCard(toolExec);
+    }
+  }
+
+  // Display floating approval card for user confirmation
+  function showToolApprovalCard(toolExec) {
+    let card = document.getElementById('ds-bridge-tool-approval-card');
+    if (card) card.remove();
+
+    card = document.createElement('div');
+    card.id = 'ds-bridge-tool-approval-card';
+    card.className = 'ds-bridge-tool-approval-card';
+
+    const toolName = toolExec.tool || 'unknown';
+    const paramsJson = JSON.stringify(toolExec.params || {}, null, 2);
+    const reasonText = toolExec.reason || 'اجرای این ابزار نیازمند تایید شماست.';
+
+    card.innerHTML = `
+      <div class="ds-bridge-tool-header">
+        <div class="ds-bridge-tool-title">
+          <span>⚡ درخواست اجرای ابزار</span>
+          <span class="ds-bridge-tool-badge">${toolName}</span>
+        </div>
+        <span style="font-size: 11px; color: #f59e0b;">تایید دسترسی</span>
+      </div>
+
+      <div class="ds-bridge-tool-reason">${reasonText}</div>
+
+      <div class="ds-bridge-tool-params">${escapeHtml(paramsJson)}</div>
+
+      <div class="ds-bridge-tool-actions">
+        <button type="button" class="ds-bridge-tool-btn-approve" id="ds-tool-approve-btn">
+          <span>✅ تایید و اجرا</span>
+        </button>
+        <button type="button" class="ds-bridge-tool-btn-deny" id="ds-tool-deny-btn">
+          <span>❌ رد درخواست</span>
+        </button>
+      </div>
+    `;
+
+    document.body.appendChild(card);
+
+    const approveBtn = card.querySelector('#ds-tool-approve-btn');
+    const denyBtn = card.querySelector('#ds-tool-deny-btn');
+
+    approveBtn.addEventListener('click', () => {
+      approveBtn.disabled = true;
+      approveBtn.innerHTML = '<span>⏳ در حال اجرا...</span>';
+
+      const sessionId = getCurrentSessionId();
+      chrome.runtime.sendMessage({
+        action: 'EXECUTE_TOOL',
+        toolData: {
+          tool: toolName,
+          params: toolExec.params || {},
+          session_id: sessionId
+        }
+      }, (res) => {
+        card.remove();
+        if (res && res.success) {
+          showToast(`✓ ابزار "${toolName}" اجرا شد`, 'success');
+          const replyDict = {
+            tool_result: {
+              tool: toolName,
+              success: res.success,
+              output: res.output,
+              error: res.error
+            }
+          };
+          const chatReply = "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
+          sendReplyToDeepSeekChat(chatReply);
+        } else {
+          const err = (res && res.error) || 'خطا در اجرا';
+          showToast(`خطا در اجرای ابزار: ${err}`, 'error');
+          const replyDict = {
+            tool_result: {
+              tool: toolName,
+              success: false,
+              error: err
+            }
+          };
+          const chatReply = "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
+          sendReplyToDeepSeekChat(chatReply);
+        }
+      });
+    });
+
+    denyBtn.addEventListener('click', () => {
+      card.remove();
+      showToast(`درخواست اجرای ابزار "${toolName}" رد شد`, 'info');
+      const replyDict = {
+        tool_result: {
+          tool: toolName,
+          success: false,
+          error: "Permission Denied: User rejected tool execution request."
+        }
+      };
+      const chatReply = "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
+      sendReplyToDeepSeekChat(chatReply);
+    });
+  }
+
+  // Programmatically types a response into DeepSeek textarea and clicks the Send button
+  function sendReplyToDeepSeekChat(text) {
+    if (!text) return;
+
+    const textarea = document.querySelector('textarea, [contenteditable="true"]');
+    if (!textarea) {
+      console.warn('[DeepSeek Bridge] Textarea not found in DOM');
+      return;
+    }
+
+    if (textarea.tagName === 'TEXTAREA') {
+      textarea.value = text;
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      textarea.innerText = text;
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // Wait 500ms for DeepSeek reactive button state to enable, then click Send!
+    setTimeout(() => {
+      const allButtons = document.querySelectorAll('button');
+      let sendBtn = null;
+
+      for (const btn of allButtons) {
+        const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+        const title = (btn.getAttribute('title') || '').toLowerCase();
+        if (aria.includes('send') || title.includes('send') || aria.includes('ارسال')) {
+          sendBtn = btn;
+          break;
+        }
+        // Check for round action button in bottom-right with SVG
+        if (!btn.id.includes('ds-bridge') && btn.querySelector('svg') && !btn.querySelector('input[type="file"]')) {
+          const rect = btn.getBoundingClientRect();
+          if (rect.width <= 44 && rect.height <= 44 && rect.top > window.innerHeight * 0.4) {
+            sendBtn = btn;
+          }
+        }
+      }
+
+      if (sendBtn && !sendBtn.disabled) {
+        console.log('[DeepSeek Bridge] Triggering send button for tool response:', sendBtn);
+        sendBtn.click();
+      } else {
+        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+      }
+    }, 500);
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   // 8. Stream intercept from inject.js (Network layer)

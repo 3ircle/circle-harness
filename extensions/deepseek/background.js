@@ -168,6 +168,30 @@ async function setSessionModeInBackend(sessionId, mode) {
   }
 }
 
+// Execute a tool in the backend
+async function executeToolInBackend(toolData) {
+  const settings = await getSettings();
+  const baseUrl = getBaseUrl(settings.serverUrl);
+  const targetUrl = `${baseUrl}/chat/tools/execute/`;
+
+  try {
+    const { response } = await fetchWithRetry(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(toolData)
+    });
+    if (response.ok) {
+      return await response.json();
+    }
+    return { success: false, error: `HTTP ${response.status}` };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 // Forward chat message payload to localhost
 async function sendChatToServer(chatData) {
   const settings = await getSettings();
@@ -319,6 +343,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'SET_SESSION_MODE') {
     setSessionModeInBackend(request.sessionId, request.mode).then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'EXECUTE_TOOL') {
+    executeToolInBackend(request.toolData).then(sendResponse);
     return true;
   }
 

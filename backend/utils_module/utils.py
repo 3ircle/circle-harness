@@ -116,8 +116,8 @@ Priorities:
 3. TOOL EXECUTION & REGISTRY
 {tools_doc}
 
-### Tool Invocation Protocol
-When invoking a tool, format your tool call as a clear, standalone JSON block:
+### Tool Invocation Protocol (MANDATORY)
+Whenever you need to inspect files, modify code, or run commands, you MUST request tool execution by outputting a standalone JSON block:
 ```json
 {{
   "tool": "<tool_name>",
@@ -127,7 +127,35 @@ When invoking a tool, format your tool call as a clear, standalone JSON block:
 }}
 ```
 
-### Tool Safety Rules:
+Example tool call:
+```json
+{{
+  "tool": "list_dir",
+  "params": {{
+    "path": ".",
+    "recursive": true,
+    "max_entries": 200
+  }}
+}}
+```
+
+### Tool Execution Cycle:
+1. When you emit a tool call JSON block, stop and wait for the harness.
+2. The harness intercepts the call, evaluates your permissions (either executing automatically or requesting user authorization), runs the tool on the local system, and sends the output back to you as a message:
+```json
+{{
+  "tool_result": {{
+    "tool": "<tool_name>",
+    "success": true,
+    "output": "<command or file content>",
+    "error": null
+  }}
+}}
+```
+3. Once you receive the `tool_result`, analyze it and proceed to the next step or conclude your work.
+4. Never simulate or invent tool execution results yourself; always wait for the harness to return the real execution result.
+
+### Tool Safety & Discipline:
 - Inspect files (`read_file`, `list_dir`) before modifying them.
 - Prefer targeted reads and searches over reading the entire repository.
 - Do not modify files unrelated to the task.

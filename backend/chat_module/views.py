@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from django.shortcuts import render
 from rest_framework import generics
 from rest_framework.response import Response
@@ -7,7 +8,8 @@ from rest_framework import status
 from .models import ChatSession, ChatMessage
 from .serializers import MessageSerializer, SystemPromptSerializer, ChatSessionSerializer
 from utils_module.utils import genarate_system_prompt, build_system_prompt, get_default_environment
-from tools_module import ToolRegistry, PermissionMode
+from tools_module import ToolRegistry, PermissionMode, PermissionManager
+from tools_module.parser import parse_tool_calls
 
 # Ensure stdout handles UTF-8 / Persian unicode safely across Windows terminals
 try:
@@ -53,15 +55,102 @@ class MessageView(generics.GenericAPIView):
         print(f"\n💬 [Message Content]:\n{message_text}")
         print("=" * 70 + "\n")
 
-        return Response(
-            {
-                "status": "success",
-                "message_id": saved_msg.id,
-                "session_id": session_id,
-                "saved": True,
-            },
-            status=status.HTTP_200_OK,
-        )
+        # Parse potential tool calls from message
+        tool_calls = parse_tool_calls(message_text)
+        tool_execution_info = None
+
+        if tool_calls:
+            tc = tool_calls[0]
+            tool_name = tc.get("tool", "")
+            params = tc.get("params", {})
+
+            mode = chat_session.permission_mode if chat_session else "bypass_permissions"
+            project_path = chat_session.project_path if chat_session else ""
+
+            # Inject project_path for commands and relative paths
+            if project_path:
+                if tool_name == "bash" and "cwd" not in params:
+                    params["cwd"] = project_path
+                elif tool_name in ("read_file", "write_file", "edit_file", "list_dir"):
+                    fp = params.get("file_path") or params.get("path")
+                    if fp and not os.path.isabs(fp):
+                        resolved = os.path.normpath(os.path.join(project_path, fp))
+                        if "file_path" in params:
+                            params["file_path"] = resolved
+                        elif "path" in params:
+                            params["path"] = resolved
+
+            tool_obj = ToolRegistry.get(tool_name) if ToolRegistry else None
+            if not tool_obj:
+                err_msg = f"Tool '{tool_name}' is not registered. Available: {ToolRegistry.list_tool_names() if ToolRegistry else []}"
+                chat_reply = f"```json\n{{\n  \"tool_result\": {{\n    \"tool\": \"{tool_name}\",\n    \"success\": false,\n    \"error\": \"{err_msg}\"\n  }}\n}}\n```"
+                tool_execution_info = {
+                    "has_tool_call": True,
+                    "action": "executed",
+                    "tool": tool_name,
+                    "params": params,
+                    "chat_reply": chat_reply
+                }
+            else:
+                perm_check = PermissionManager.check_permission(tool_obj.category, PermissionMode(mode))
+
+                if not perm_check["allowed"]:
+                    # Permission completely blocked by mode (e.g. Plan mode forbids edits directly)
+                    reason = perm_check["reason"]
+                    print(f"🚫 [Tool Blocked] '{tool_name}' in '{mode}' mode: {reason}")
+                    chat_reply = f"```json\n{{\n  \"tool_result\": {{\n    \"tool\": \"{tool_name}\",\n    \"success\": false,\n    \"error\": \"{reason}\"\n  }}\n}}\n```"
+                    tool_execution_info = {
+                        "has_tool_call": True,
+                        "action": "executed",
+                        "tool": tool_name,
+                        "params": params,
+                        "chat_reply": chat_reply,
+                        "blocked": True,
+                        "reason": reason
+                    }
+                elif perm_check["requires_approval"]:
+                    # Requires user approval! Send approval request to extension UI
+                    print(f"⚠️ [Tool Requires Approval] '{tool_name}' in '{mode}' mode: {perm_check['reason']}")
+                    tool_execution_info = {
+                        "has_tool_call": True,
+                        "action": "requires_approval",
+                        "tool": tool_name,
+                        "params": params,
+                        "reason": perm_check["reason"],
+                        "mode": mode
+                    }
+                else:
+                    # Allowed automatically (e.g. bypass_permissions or safe reads)
+                    print(f"⚡ [Executing Tool Automatically] '{tool_name}' (Mode: {mode}) with params: {params}")
+                    exec_res = ToolRegistry.execute_tool(tool_name, params, mode=mode)
+                    reply_dict = {
+                        "tool_result": {
+                            "tool": tool_name,
+                            "success": exec_res.success,
+                            "output": exec_res.output,
+                            "error": exec_res.error
+                        }
+                    }
+                    chat_reply = f"```json\n{json.dumps(reply_dict, indent=2, ensure_ascii=False)}\n```"
+                    print(f"✅ [Tool Result] Success: {exec_res.success} | Output length: {len(str(exec_res.output))}")
+                    tool_execution_info = {
+                        "has_tool_call": True,
+                        "action": "executed",
+                        "tool": tool_name,
+                        "params": params,
+                        "result": exec_res.to_dict(),
+                        "chat_reply": chat_reply
+                    }
+
+        response_data = {
+            "status": "success",
+            "message_id": saved_msg.id,
+            "session_id": session_id,
+            "saved": True,
+            "tool_execution": tool_execution_info
+        }
+
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class SystemPrompt(generics.GenericAPIView):
