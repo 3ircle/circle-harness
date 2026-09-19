@@ -124,58 +124,61 @@ class MessageView(generics.GenericAPIView):
         tool_execution_info = None
 
         if tool_calls:
-            tc = tool_calls[0]
-            tool_name = tc.get("tool", "")
-            raw_params = tc.get("params", {})
+            print(f"🔧 [Tool Calls Detected] Total: {len(tool_calls)} | Session: {session_id or 'unknown'} | Mode: {mode}")
 
-            # Ensure all paths and cwd resolve against project_path
-            params = resolve_tool_params(tool_name, raw_params, project_path)
-            print(f"🔧 [Tool Call Detected] Tool: '{tool_name}' | Project Path: '{project_path}' | Params: {params}")
+            executed_items = []
+            approval_items = []
+            chat_reply_blocks = []
 
-            tool_obj = ToolRegistry.get(tool_name) if ToolRegistry else None
-            if not tool_obj:
-                err_msg = f"Tool '{tool_name}' is not registered. Available: {ToolRegistry.list_tool_names() if ToolRegistry else []}"
-                chat_reply = f"```json\n{{\n  \"tool_result\": {{\n    \"tool\": \"{tool_name}\",\n    \"success\": false,\n    \"error\": \"{err_msg}\"\n  }}\n}}\n```"
-                tool_execution_info = {
-                    "has_tool_call": True,
-                    "action": "executed",
-                    "tool": tool_name,
-                    "params": params,
-                    "chat_reply": chat_reply
-                }
-            else:
+            for idx, tc in enumerate(tool_calls):
+                tool_name = tc.get("tool", "")
+                raw_params = tc.get("params", {})
+                params = resolve_tool_params(tool_name, raw_params, project_path)
+
+                tool_obj = ToolRegistry.get(tool_name) if ToolRegistry else None
+                if not tool_obj:
+                    err_msg = f"Tool '{tool_name}' is not registered. Available: {ToolRegistry.list_tool_names() if ToolRegistry else []}"
+                    reply_block = {
+                        "tool_result": {
+                            "tool": tool_name,
+                            "success": False,
+                            "output": None,
+                            "error": err_msg
+                        }
+                    }
+                    executed_items.append({"tool": tool_name, "params": params, "result": reply_block["tool_result"]})
+                    chat_reply_blocks.append(f"```json\n{json.dumps(reply_block, indent=2, ensure_ascii=False)}\n```")
+                    continue
+
                 perm_check = PermissionManager.check_permission(tool_obj.category, PermissionMode(mode))
 
                 if not perm_check["allowed"]:
-                    # Permission completely blocked by mode (e.g. Plan mode forbids edits directly)
                     reason = perm_check["reason"]
-                    print(f"🚫 [Tool Blocked] '{tool_name}' in '{mode}' mode: {reason}")
-                    chat_reply = f"```json\n{{\n  \"tool_result\": {{\n    \"tool\": \"{tool_name}\",\n    \"success\": false,\n    \"error\": \"{reason}\"\n  }}\n}}\n```"
-                    tool_execution_info = {
-                        "has_tool_call": True,
-                        "action": "executed",
-                        "tool": tool_name,
-                        "params": params,
-                        "chat_reply": chat_reply,
-                        "blocked": True,
-                        "reason": reason
+                    print(f"🚫 [Tool Blocked #{idx+1}] '{tool_name}' in '{mode}' mode: {reason}")
+                    reply_block = {
+                        "tool_result": {
+                            "tool": tool_name,
+                            "success": False,
+                            "output": None,
+                            "error": reason
+                        }
                     }
+                    executed_items.append({"tool": tool_name, "params": params, "result": reply_block["tool_result"]})
+                    chat_reply_blocks.append(f"```json\n{json.dumps(reply_block, indent=2, ensure_ascii=False)}\n```")
                 elif perm_check["requires_approval"]:
-                    # Requires user approval! Send approval request to extension UI
-                    print(f"⚠️ [Tool Requires Approval] '{tool_name}' in '{mode}' mode: {perm_check['reason']}")
-                    tool_execution_info = {
-                        "has_tool_call": True,
-                        "action": "requires_approval",
+                    print(f"⚠️ [Tool Requires Approval #{idx+1}] '{tool_name}' in '{mode}' mode: {perm_check['reason']}")
+                    approval_items.append({
+                        "index": idx,
                         "tool": tool_name,
                         "params": params,
                         "reason": perm_check["reason"],
                         "mode": mode
-                    }
+                    })
                 else:
-                    # Allowed automatically (e.g. bypass_permissions or safe reads)
-                    print(f"⚡ [Executing Tool Automatically] '{tool_name}' (Mode: {mode}) with params: {params}")
+                    # Permitted automatically
+                    print(f"⚡ [Executing Tool #{idx+1}/{len(tool_calls)}] '{tool_name}' with params: {params}")
                     exec_res = ToolRegistry.execute_tool(tool_name, params, mode=mode)
-                    reply_dict = {
+                    reply_block = {
                         "tool_result": {
                             "tool": tool_name,
                             "success": exec_res.success,
@@ -183,16 +186,32 @@ class MessageView(generics.GenericAPIView):
                             "error": exec_res.error
                         }
                     }
-                    chat_reply = f"```json\n{json.dumps(reply_dict, indent=2, ensure_ascii=False)}\n```"
-                    print(f"✅ [Tool Result] Success: {exec_res.success} | Output length: {len(str(exec_res.output))}")
-                    tool_execution_info = {
-                        "has_tool_call": True,
-                        "action": "executed",
-                        "tool": tool_name,
-                        "params": params,
-                        "result": exec_res.to_dict(),
-                        "chat_reply": chat_reply
-                    }
+                    executed_items.append({"tool": tool_name, "params": params, "result": exec_res.to_dict()})
+                    chat_reply_blocks.append(f"```json\n{json.dumps(reply_block, indent=2, ensure_ascii=False)}\n```")
+                    print(f"✅ [Tool Result #{idx+1}] '{tool_name}' Success: {exec_res.success} | Output length: {len(str(exec_res.output))}")
+
+            if approval_items:
+                tool_execution_info = {
+                    "has_tool_call": True,
+                    "action": "requires_approval",
+                    "count": len(approval_items),
+                    "approval_items": approval_items,
+                    "executed_so_far": executed_items,
+                    "tool": approval_items[0]["tool"],
+                    "params": approval_items[0]["params"],
+                    "reason": approval_items[0]["reason"],
+                    "mode": mode
+                }
+            else:
+                full_chat_reply = "\n\n".join(chat_reply_blocks)
+                tool_execution_info = {
+                    "has_tool_call": True,
+                    "action": "executed",
+                    "count": len(tool_calls),
+                    "tools": [tc.get("tool") for tc in tool_calls],
+                    "results": executed_items,
+                    "chat_reply": full_chat_reply
+                }
 
         response_data = {
             "status": "success",
@@ -373,21 +392,56 @@ class SessionModeUpdateView(generics.GenericAPIView):
 
 class ToolExecuteView(generics.GenericAPIView):
     """
-    Executes a tool on the host under the session's permission mode and project workspace.
+    Executes one or multiple tools on the host under the session's permission mode and project workspace.
     POST /chat/tools/execute/
-    Payload: { "tool": "read_file", "params": {...}, "session_id": "...", "project_path": "..." }
+    Payload:
+      Single:   { "tool": "...", "params": {...}, "session_id": "...", "project_path": "..." }
+      Multiple: { "tools": [ {"tool": "...", "params": {...}}, ... ], "session_id": "...", "project_path": "..." }
     """
 
     def post(self, request, *args, **kwargs):
-        tool_name = request.data.get("tool")
-        raw_params = request.data.get("params", {})
         session_id = request.data.get("session_id", "")
         client_project_path = request.data.get("project_path", "")
-
         chat_session, project_path, mode = resolve_session_and_project_path(session_id, client_project_path)
-        params = resolve_tool_params(tool_name, raw_params, project_path)
 
-        print(f"⚡ [Manual Execution Approved] Tool: '{tool_name}' | Project: '{project_path}' | Params: {params}")
+        raw_tools = request.data.get("tools")
+        if not raw_tools:
+            single_tool = request.data.get("tool")
+            single_params = request.data.get("params", {})
+            if single_tool:
+                raw_tools = [{"tool": single_tool, "params": single_params}]
+            else:
+                raw_tools = []
 
-        result = ToolRegistry.execute_tool(tool_name, params, mode=mode)
-        return Response(result.to_dict(), status=status.HTTP_200_OK)
+        results = []
+        chat_reply_blocks = []
+
+        for item in raw_tools:
+            t_name = item.get("tool", "")
+            r_params = item.get("params", {})
+            params = resolve_tool_params(t_name, r_params, project_path)
+
+            print(f"⚡ [Manual Execution Approved] Tool: '{t_name}' | Project: '{project_path}' | Params: {params}")
+            exec_res = ToolRegistry.execute_tool(t_name, params, mode=mode)
+            results.append({"tool": t_name, "params": params, "result": exec_res.to_dict()})
+
+            reply_dict = {
+                "tool_result": {
+                    "tool": t_name,
+                    "success": exec_res.success,
+                    "output": exec_res.output,
+                    "error": exec_res.error
+                }
+            }
+            chat_reply_blocks.append(f"```json\n{json.dumps(reply_dict, indent=2, ensure_ascii=False)}\n```")
+
+        full_chat_reply = "\n\n".join(chat_reply_blocks)
+        first_output = results[0]["result"]["output"] if results else ""
+        first_success = results[0]["result"]["success"] if results else True
+
+        return Response({
+            "success": first_success,
+            "results": results,
+            "output": first_output,
+            "chat_reply": full_chat_reply
+        }, status=status.HTTP_200_OK)

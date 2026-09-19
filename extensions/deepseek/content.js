@@ -440,15 +440,23 @@
     card.id = 'ds-bridge-tool-approval-card';
     card.className = 'ds-bridge-tool-approval-card';
 
-    const toolName = toolExec.tool || 'unknown';
-    const paramsJson = JSON.stringify(toolExec.params || {}, null, 2);
-    const reasonText = toolExec.reason || 'اجرای این ابزار نیازمند تایید شماست.';
+    const approvalItems = toolExec.approval_items && toolExec.approval_items.length > 0
+      ? toolExec.approval_items
+      : [{ tool: toolExec.tool || 'unknown', params: toolExec.params || {}, reason: toolExec.reason || '' }];
+
+    const toolBadge = approvalItems.map(it => it.tool).join(', ');
+    const paramsJson = JSON.stringify(
+      approvalItems.length === 1 ? approvalItems[0].params : approvalItems.map(it => ({ tool: it.tool, params: it.params })),
+      null,
+      2
+    );
+    const reasonText = toolExec.reason || 'اجرای این ابزارها نیازمند تایید شماست.';
 
     card.innerHTML = `
       <div class="ds-bridge-tool-header">
         <div class="ds-bridge-tool-title">
-          <span>⚡ درخواست اجرای ابزار</span>
-          <span class="ds-bridge-tool-badge">${toolName}</span>
+          <span>⚡ درخواست اجرای ${approvalItems.length > 1 ? approvalItems.length + ' ابزار' : 'ابزار'}</span>
+          <span class="ds-bridge-tool-badge">${toolBadge}</span>
         </div>
         <span style="font-size: 11px; color: #f59e0b;">تایید دسترسی</span>
       </div>
@@ -477,21 +485,25 @@
       approveBtn.innerHTML = '<span>⏳ در حال اجرا...</span>';
 
       const sessionId = getCurrentSessionId();
+      const toolsToRun = approvalItems.map(it => ({ tool: it.tool, params: it.params }));
+
       chrome.runtime.sendMessage({
         action: 'EXECUTE_TOOL',
         toolData: {
-          tool: toolName,
-          params: toolExec.params || {},
+          tools: toolsToRun,
           session_id: sessionId,
           project_path: lastConfiguredProjectPath || ''
         }
       }, (res) => {
         card.remove();
-        if (res && res.success) {
-          showToast(`✓ ابزار "${toolName}" اجرا شد`, 'success');
+        if (res && res.chat_reply) {
+          showToast(`✓ ابزارها با موفقیت اجرا شدند`, 'success');
+          sendReplyToDeepSeekChat(res.chat_reply);
+        } else if (res && res.success) {
+          showToast(`✓ ابزار "${toolBadge}" اجرا شد`, 'success');
           const replyDict = {
             tool_result: {
-              tool: toolName,
+              tool: toolBadge,
               success: res.success,
               output: res.output,
               error: res.error
@@ -502,31 +514,35 @@
         } else {
           const err = (res && res.error) || 'خطا در اجرا';
           showToast(`خطا در اجرای ابزار: ${err}`, 'error');
-          const replyDict = {
-            tool_result: {
-              tool: toolName,
-              success: false,
-              error: err
-            }
-          };
-          const chatReply = "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
-          sendReplyToDeepSeekChat(chatReply);
+          const replyBlocks = approvalItems.map(it => {
+            const replyDict = {
+              tool_result: {
+                tool: it.tool,
+                success: false,
+                error: err
+              }
+            };
+            return "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
+          });
+          sendReplyToDeepSeekChat(replyBlocks.join("\n\n"));
         }
       });
     });
 
     denyBtn.addEventListener('click', () => {
       card.remove();
-      showToast(`درخواست اجرای ابزار "${toolName}" رد شد`, 'info');
-      const replyDict = {
-        tool_result: {
-          tool: toolName,
-          success: false,
-          error: "Permission Denied: User rejected tool execution request."
-        }
-      };
-      const chatReply = "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
-      sendReplyToDeepSeekChat(chatReply);
+      showToast(`درخواست اجرای ابزارها رد شد`, 'info');
+      const replyBlocks = approvalItems.map(it => {
+        const replyDict = {
+          tool_result: {
+            tool: it.tool,
+            success: false,
+            error: "Permission Denied: User rejected tool execution request."
+          }
+        };
+        return "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
+      });
+      sendReplyToDeepSeekChat(replyBlocks.join("\n\n"));
     });
   }
 
