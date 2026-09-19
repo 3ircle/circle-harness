@@ -10,6 +10,7 @@ class MessageSerializer(serializers.Serializer):
     model = serializers.CharField(required=False, default="deepseek")
     url = serializers.CharField(required=False, allow_blank=True, default="")
     session_id = serializers.CharField(required=False, allow_blank=True, allow_null=True, default="")
+    project_path = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class SystemPromptSerializer(serializers.Serializer):

@@ -16,6 +16,18 @@
     includeThinking: true
   };
 
+  // Track active project workspace
+  let lastConfiguredProjectPath = '';
+  let lastConfiguredProjectName = '';
+  let lastRegisteredUUID = null;
+
+  chrome.storage.local.get(['lastProjectPath', 'lastProjectName'], (res) => {
+    if (res) {
+      if (res.lastProjectPath) lastConfiguredProjectPath = res.lastProjectPath;
+      if (res.lastProjectName) lastConfiguredProjectName = res.lastProjectName;
+    }
+  });
+
   // 1. Get current DeepSeek session ID
   function getCurrentSessionId() {
     const urlMatch = window.location.pathname.match(/\/a\/chat\/s\/([a-zA-Z0-9_\-]+)/);
@@ -27,6 +39,31 @@
     }
     return window.__DEEPSEEK_SESSION_ID__;
   }
+
+  // Keep backend updated when DeepSeek navigates from '/' to '/a/chat/s/<uuid>'
+  function syncSessionWithCurrentUrl() {
+    const urlMatch = window.location.pathname.match(/\/a\/chat\/s\/([a-zA-Z0-9_\-]+)/);
+    if (urlMatch && urlMatch[1]) {
+      const realUUID = urlMatch[1];
+      if (realUUID !== lastRegisteredUUID) {
+        lastRegisteredUUID = realUUID;
+        if (lastConfiguredProjectPath) {
+          console.log('[DeepSeek Bridge] URL updated to official UUID. Auto-syncing workspace with backend:', realUUID);
+          chrome.runtime.sendMessage({
+            action: 'CREATE_SESSION',
+            sessionData: {
+              session_id: realUUID,
+              project_path: lastConfiguredProjectPath,
+              project_name: lastConfiguredProjectName || '',
+              permission_mode: activePermissionMode
+            }
+          });
+        }
+      }
+    }
+  }
+
+  window.addEventListener('popstate', syncSessionWithCurrentUrl);
 
   // 2. Load initial settings
   chrome.runtime.sendMessage({ action: 'GET_SETTINGS' }, (res) => {
@@ -262,6 +299,12 @@
           confirmBtn.innerHTML = '<span>🚀 تایید و ارسال سیستم پرامپت به چت</span>';
 
           if (res && res.success) {
+            lastConfiguredProjectPath = projectPath;
+            lastConfiguredProjectName = projectName;
+            chrome.storage.local.set({
+              lastProjectPath: projectPath,
+              lastProjectName: projectName
+            });
             closeModal();
             if (typeof onConfirmed === 'function') {
               onConfirmed(res);
@@ -339,6 +382,7 @@
       manual: isManual,
       url: window.location.href,
       session_id: getCurrentSessionId(),
+      project_path: lastConfiguredProjectPath || '',
       timestamp: new Date().toISOString()
     };
 
@@ -438,7 +482,8 @@
         toolData: {
           tool: toolName,
           params: toolExec.params || {},
-          session_id: sessionId
+          session_id: sessionId,
+          project_path: lastConfiguredProjectPath || ''
         }
       }, (res) => {
         card.remove();
@@ -999,6 +1044,7 @@
 
   // --- Main DOM Observer & Auto-Send Trigger ---
   function handleDomUpdate() {
+    syncSessionWithCurrentUrl();
     injectInputToolbarToggle();
     injectMessageButtons();
 

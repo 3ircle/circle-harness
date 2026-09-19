@@ -46,8 +46,22 @@ class ReadFileTool(BaseTool):
             return ToolResult(success=False, error=f"Path is a directory, not a file: '{file_path}'")
 
         try:
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
+            with open(file_path, "rb") as bf:
+                raw_bytes = bf.read()
+
+            # Detect encoding safely (handles UTF-16 LE from PowerShell, UTF-8 with BOM, etc.)
+            encoding = "utf-8"
+            if raw_bytes.startswith(b"\xff\xfe") or raw_bytes.startswith(b"\xfe\xff") or b"\x00" in raw_bytes[:100]:
+                encoding = "utf-16"
+            elif raw_bytes.startswith(b"\xef\xbb\xbf"):
+                encoding = "utf-8-sig"
+
+            try:
+                text_content = raw_bytes.decode(encoding)
+            except Exception:
+                text_content = raw_bytes.decode("utf-8", errors="replace")
+
+            lines = text_content.splitlines(keepends=True)
 
             total_lines = len(lines)
             start_idx = max(0, offset - 1)
@@ -63,7 +77,8 @@ class ReadFileTool(BaseTool):
                 metadata={
                     "total_lines": total_lines,
                     "lines_returned": len(selected_lines),
-                    "file_path": file_path
+                    "file_path": file_path,
+                    "encoding": encoding
                 }
             )
         except Exception as e:

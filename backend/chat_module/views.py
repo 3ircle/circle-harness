@@ -19,6 +19,71 @@ except Exception:
     pass
 
 
+def resolve_session_and_project_path(session_id: str, client_project_path: str = ""):
+    """
+    Finds ChatSession by session_id, or auto-binds new DeepSeek UUID to the most recent session,
+    or falls back to client_project_path / the latest configured workspace.
+    Returns (chat_session, project_path, permission_mode).
+    """
+    chat_session = None
+    if session_id:
+        chat_session = ChatSession.objects.filter(session_id=session_id).first()
+
+    if not chat_session:
+        # Check if there is a recent session
+        recent = ChatSession.objects.exclude(project_path="").order_by("-updated_at").first()
+        if recent:
+            if session_id and not session_id.startswith("session_"):
+                # Auto-bind this new real DeepSeek UUID to the existing session!
+                recent.session_id = session_id
+                if client_project_path:
+                    recent.project_path = client_project_path
+                    recent.project_name = os.path.basename(os.path.normpath(client_project_path)) or recent.project_name
+                recent.save()
+                chat_session = recent
+                print(f"🔗 [Auto-Bound Session] Linked DeepSeek UUID '{session_id}' -> Project '{recent.project_name}' ({recent.project_path})")
+            else:
+                chat_session = recent
+
+    project_path = ""
+    if chat_session and chat_session.project_path:
+        project_path = chat_session.project_path
+    elif client_project_path:
+        project_path = client_project_path
+    else:
+        last = ChatSession.objects.exclude(project_path="").order_by("-updated_at").first()
+        if last:
+            project_path = last.project_path
+
+    mode = chat_session.permission_mode if chat_session else "bypass_permissions"
+    return chat_session, project_path, mode
+
+
+def resolve_tool_params(tool_name: str, params: dict, project_path: str) -> dict:
+    """
+    Ensures file paths and bash cwd strictly resolve against the session's local project_path.
+    """
+    resolved = dict(params or {})
+    if not project_path:
+        return resolved
+
+    if tool_name == "bash":
+        if "cwd" not in resolved or not resolved["cwd"] or resolved["cwd"] == ".":
+            resolved["cwd"] = project_path
+    elif tool_name == "list_dir":
+        p = resolved.get("path", ".")
+        if not p or p == ".":
+            resolved["path"] = project_path
+        elif not os.path.isabs(p):
+            resolved["path"] = os.path.normpath(os.path.join(project_path, p))
+    elif tool_name in ("read_file", "write_file", "edit_file"):
+        fp = resolved.get("file_path")
+        if fp and not os.path.isabs(fp):
+            resolved["file_path"] = os.path.normpath(os.path.join(project_path, fp))
+
+    return resolved
+
+
 class MessageView(generics.GenericAPIView):
     serializer_class = MessageSerializer
 
@@ -33,10 +98,9 @@ class MessageView(generics.GenericAPIView):
         model = data.get("model", "deepseek")
         url = data.get("url", "")
         session_id = data.get("session_id") or ""
+        client_project_path = data.get("project_path") or ""
 
-        chat_session = None
-        if session_id:
-            chat_session = ChatSession.objects.filter(session_id=session_id).first()
+        chat_session, project_path, mode = resolve_session_and_project_path(session_id, client_project_path)
 
         saved_msg = ChatMessage.objects.create(
             session=chat_session,
@@ -62,23 +126,11 @@ class MessageView(generics.GenericAPIView):
         if tool_calls:
             tc = tool_calls[0]
             tool_name = tc.get("tool", "")
-            params = tc.get("params", {})
+            raw_params = tc.get("params", {})
 
-            mode = chat_session.permission_mode if chat_session else "bypass_permissions"
-            project_path = chat_session.project_path if chat_session else ""
-
-            # Inject project_path for commands and relative paths
-            if project_path:
-                if tool_name == "bash" and "cwd" not in params:
-                    params["cwd"] = project_path
-                elif tool_name in ("read_file", "write_file", "edit_file", "list_dir"):
-                    fp = params.get("file_path") or params.get("path")
-                    if fp and not os.path.isabs(fp):
-                        resolved = os.path.normpath(os.path.join(project_path, fp))
-                        if "file_path" in params:
-                            params["file_path"] = resolved
-                        elif "path" in params:
-                            params["path"] = resolved
+            # Ensure all paths and cwd resolve against project_path
+            params = resolve_tool_params(tool_name, raw_params, project_path)
+            print(f"🔧 [Tool Call Detected] Tool: '{tool_name}' | Project Path: '{project_path}' | Params: {params}")
 
             tool_obj = ToolRegistry.get(tool_name) if ToolRegistry else None
             if not tool_obj:
@@ -321,21 +373,21 @@ class SessionModeUpdateView(generics.GenericAPIView):
 
 class ToolExecuteView(generics.GenericAPIView):
     """
-    Executes a tool on the host under the session's permission mode.
+    Executes a tool on the host under the session's permission mode and project workspace.
     POST /chat/tools/execute/
-    Payload: { "tool": "read_file", "params": {...}, "session_id": "..." }
+    Payload: { "tool": "read_file", "params": {...}, "session_id": "...", "project_path": "..." }
     """
 
     def post(self, request, *args, **kwargs):
         tool_name = request.data.get("tool")
-        params = request.data.get("params", {})
+        raw_params = request.data.get("params", {})
         session_id = request.data.get("session_id", "")
+        client_project_path = request.data.get("project_path", "")
 
-        mode = "bypass_permissions"
-        if session_id:
-            session = ChatSession.objects.filter(session_id=session_id).first()
-            if session:
-                mode = session.permission_mode
+        chat_session, project_path, mode = resolve_session_and_project_path(session_id, client_project_path)
+        params = resolve_tool_params(tool_name, raw_params, project_path)
+
+        print(f"⚡ [Manual Execution Approved] Tool: '{tool_name}' | Project: '{project_path}' | Params: {params}")
 
         result = ToolRegistry.execute_tool(tool_name, params, mode=mode)
         return Response(result.to_dict(), status=status.HTTP_200_OK)
