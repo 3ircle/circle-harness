@@ -607,8 +607,16 @@
         <span class="ds-bridge-mode-label" id="ds-bridge-mode-label">${info.title}</span>
         <span style="font-size: 10px; opacity: 0.7;">▾</span>
       </button>
+    `;
 
-      <div class="ds-bridge-mode-popover" id="ds-bridge-mode-popover">
+    // Create popover directly in document.body to prevent clipping by parent overflow:hidden
+    let popover = document.getElementById('ds-bridge-mode-popover');
+    if (!popover) {
+      popover = document.createElement('div');
+      popover.id = 'ds-bridge-mode-popover';
+      popover.className = 'ds-bridge-mode-popover';
+
+      popover.innerHTML = `
         <div class="ds-bridge-mode-header">Mode</div>
 
         <div class="ds-bridge-mode-item" data-mode="manual">
@@ -654,8 +662,9 @@
             <span class="ds-bridge-mode-num">4</span>
           </div>
         </div>
-      </div>
-    `;
+      `;
+      document.body.appendChild(popover);
+    }
 
     if (insertAfterEl && insertAfterEl.nextSibling) {
       targetToolbar.insertBefore(wrapper, insertAfterEl.nextSibling);
@@ -664,21 +673,50 @@
     }
 
     const modeBtn = wrapper.querySelector('#ds-bridge-mode-btn');
-    const popover = wrapper.querySelector('#ds-bridge-mode-popover');
-    const items = wrapper.querySelectorAll('.ds-bridge-mode-item');
+
+    function positionPopover() {
+      if (!modeBtn) return;
+      const rect = modeBtn.getBoundingClientRect();
+      const popoverWidth = 280;
+      let left = rect.left;
+      if (left + popoverWidth > window.innerWidth - 16) {
+        left = window.innerWidth - popoverWidth - 16;
+      }
+      popover.style.left = `${Math.max(12, left)}px`;
+      popover.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+    }
 
     modeBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      popover.classList.toggle('open');
-    });
-
-    document.addEventListener('click', (e) => {
-      if (!wrapper.contains(e.target)) {
+      const willOpen = !popover.classList.contains('open');
+      if (willOpen) {
+        positionPopover();
+        popover.classList.add('open');
+      } else {
         popover.classList.remove('open');
       }
     });
 
+    document.addEventListener('click', (e) => {
+      if (!wrapper.contains(e.target) && !popover.contains(e.target)) {
+        popover.classList.remove('open');
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      if (popover.classList.contains('open')) {
+        positionPopover();
+      }
+    });
+
+    window.addEventListener('scroll', () => {
+      if (popover.classList.contains('open')) {
+        positionPopover();
+      }
+    }, true);
+
+    const items = popover.querySelectorAll('.ds-bridge-mode-item');
     items.forEach(item => {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
