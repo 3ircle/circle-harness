@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepSeek to Localhost Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-area">
+        <img src="icons/icon48.png" alt="Logo" class="logo-img">
+        <div>
+          <h1 class="title">DeepSeek Bridge</h1>
+          <p class="subtitle">ارسال پیام‌های چت به لوکال‌هاست</p>
+        </div>
+      </div>
+      <div class="status-chip" id="connection-status-chip">
+        <span class="status-indicator offline" id="status-indicator"></span>
+        <span id="status-text">بررسی...</span>
+      </div>
+    </header>
+
+    <!-- Main Settings -->
+    <section class="section">
+      <h2 class="section-title">تنظیمات سرور مقصد</h2>
+
+      <div class="form-group">
+        <label for="server-url">آدرس سرور (Target URL):</label>
+        <div class="input-with-button">
+          <input type="url" id="server-url" placeholder="http://localhost:8000/chat/" dir="ltr">
+          <button class="btn btn-primary" id="save-url-btn">ذخیره</button>
+        </div>
+        <div class="hint">پیش‌فرض: http://localhost:8000/chat/</div>
+      </div>
+
+      <div class="switches-list">
+        <div class="switch-row">
+          <div class="switch-info">
+            <span class="switch-label">ارسال خودکار پیام‌ها</span>
+            <span class="switch-desc">به محض اتمام پاسخ دیپ‌سیک، پیام به سرور ارسال می‌شود</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="auto-send-toggle" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="switch-row">
+          <div class="switch-info">
+            <span class="switch-label">ارسال بخش فکر کردن (Thinking)</span>
+            <span class="switch-desc">شامل استدلال مدل‌های R1 در کنار پاسخ نهایی</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="thinking-toggle" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="action-buttons">
+        <button class="btn btn-secondary" id="test-connection-btn">
+          <span>🔄 تست ارتباط با سرور</span>
+        </button>
+        <button class="btn btn-secondary" id="open-deepseek-btn">
+          <span>🌐 باز کردن DeepSeek</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Sent Messages Log -->
+    <section class="section">
+      <div class="section-header-flex">
+        <h2 class="section-title">تاریخچه آخرین پیام‌های ارسالی</h2>
+        <button class="text-btn" id="clear-history-btn">پاک کردن</button>
+      </div>
+
+      <div class="history-container" id="history-container">
+        <div class="empty-state" id="history-empty">هیچ پیامی هنوز ارسال نشده است</div>
+      </div>
+    </section>
+
+    <!-- Footer info -->
+    <footer class="footer">
+      <span>سازگار با Manifest V3</span>
+      <span class="version">v1.0.0</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

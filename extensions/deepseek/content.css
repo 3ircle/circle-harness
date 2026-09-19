@@ -1,0 +1,284 @@
+/* DeepSeek to Localhost Bridge - Content Styles */
+
+/* Floating Status Widget */
+#ds-bridge-floating-widget {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99999;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  border-radius: 12px;
+  background: #1e222d;
+  color: #f0f3f8;
+  border: 1px solid #323846;
+  overflow: hidden;
+  transition: all 0.25s ease;
+  user-select: none;
+  width: 260px;
+}
+
+#ds-bridge-floating-widget.collapsed {
+  width: auto;
+  border-radius: 24px;
+}
+
+#ds-bridge-floating-widget.collapsed .ds-bridge-body {
+  display: none;
+}
+
+.ds-bridge-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #181b24;
+  cursor: pointer;
+  border-bottom: 1px solid #282d3b;
+}
+
+#ds-bridge-floating-widget.collapsed .ds-bridge-header {
+  border-bottom: none;
+  padding: 8px 14px;
+}
+
+.ds-bridge-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
+}
+
+.ds-bridge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  transition: background 0.3s ease;
+}
+
+.ds-bridge-dot.offline {
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.ds-bridge-dot.busy {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+}
+
+.ds-bridge-toggle-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.ds-bridge-toggle-btn:hover {
+  color: #ffffff;
+}
+
+.ds-bridge-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ds-bridge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.ds-bridge-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  width: 100%;
+}
+
+.ds-bridge-btn:hover {
+  background: #1d4ed8;
+}
+
+.ds-bridge-btn:active {
+  transform: scale(0.98);
+}
+
+.ds-bridge-btn.secondary {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+.ds-bridge-btn.secondary:hover {
+  background: #475569;
+}
+
+.ds-bridge-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* In-message Send Button */
+.ds-bridge-msg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(37, 99, 235, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  margin: 6px 4px 6px 0;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.ds-bridge-msg-btn:hover {
+  background: rgba(37, 99, 235, 0.25);
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.6);
+}
+
+.ds-bridge-msg-btn.success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.ds-bridge-msg-btn.error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.ds-bridge-msg-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+/* Toast Notifications */
+.ds-bridge-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 100000;
+  background: #1e293b;
+  color: #f8fafc;
+  padding: 12px 18px;
+  border-radius: 8px;
+  border-left: 4px solid #3b82f6;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 380px;
+  transform: translateY(-20px);
+  opacity: 0;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.ds-bridge-toast.show {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ds-bridge-toast.success {
+  border-left-color: #10b981;
+}
+
+.ds-bridge-toast.error {
+  border-left-color: #ef4444;
+}
+
+/* DeepSeek Input Toolbar Pill Toggle (Next to DeepThink / Search) */
+.ds-bridge-pill-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: #94a3b8;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  outline: none;
+  margin-left: 6px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.ds-bridge-pill-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.ds-bridge-pill-toggle.active {
+  background: rgba(37, 99, 235, 0.18);
+  border-color: #2563eb;
+  color: #60a5fa;
+  box-shadow: 0 0 10px rgba(37, 99, 235, 0.25);
+}
+
+.ds-bridge-pill-toggle.active:hover {
+  background: rgba(37, 99, 235, 0.28);
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+
+.ds-bridge-pill-icon {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ds-bridge-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #64748b;
+  transition: all 0.2s ease;
+  margin-left: 2px;
+}
+
+.ds-bridge-pill-toggle.active .ds-bridge-pill-dot {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+}
+
