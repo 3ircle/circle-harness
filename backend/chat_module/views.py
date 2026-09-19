@@ -1,4 +1,5 @@
 import os
+import sys
 from django.shortcuts import render
 from rest_framework import generics
 from rest_framework.response import Response
@@ -6,6 +7,13 @@ from rest_framework import status
 from .models import ChatSession, ChatMessage
 from .serializers import MessageSerializer, SystemPromptSerializer, ChatSessionSerializer
 from utils_module.utils import genarate_system_prompt, build_system_prompt, get_default_environment
+
+# Ensure stdout handles UTF-8 / Persian unicode safely across Windows terminals
+try:
+    if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 
 class MessageView(generics.GenericAPIView):
@@ -39,10 +47,13 @@ class MessageView(generics.GenericAPIView):
             url=url,
         )
 
-        try:
-            print(f"[ChatMessage] Saved msg #{saved_msg.id} for session '{session_id or 'unknown'}'")
-        except Exception:
-            pass
+        # Print message clearly to terminal
+        print("\n" + "=" * 70)
+        print(f"📩 [New Message Received] (ID: #{saved_msg.id} | Session: {session_id or 'unknown'})")
+        if thinking_text:
+            print(f"\n🧠 [Thinking / Reasoning]:\n{thinking_text}")
+        print(f"\n💬 [Message Content]:\n{message_text}")
+        print("=" * 70 + "\n")
 
         return Response(
             {
