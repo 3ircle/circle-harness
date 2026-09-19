@@ -16,7 +16,19 @@
     includeThinking: true
   };
 
-  // 1. Load initial settings
+  // 1. Get current DeepSeek session ID
+  function getCurrentSessionId() {
+    const urlMatch = window.location.pathname.match(/\/a\/chat\/s\/([a-zA-Z0-9_\-]+)/);
+    if (urlMatch && urlMatch[1]) {
+      return urlMatch[1];
+    }
+    if (!window.__DEEPSEEK_SESSION_ID__) {
+      window.__DEEPSEEK_SESSION_ID__ = 'session_' + Math.random().toString(36).substring(2, 11);
+    }
+    return window.__DEEPSEEK_SESSION_ID__;
+  }
+
+  // 2. Load initial settings
   chrome.runtime.sendMessage({ action: 'GET_SETTINGS' }, (res) => {
     if (res) {
       appSettings = { ...appSettings, ...res };
@@ -25,7 +37,7 @@
     }
   });
 
-  // 2. Listen for settings changes across extension
+  // 3. Listen for settings changes across extension
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.serverUrl) appSettings.serverUrl = changes.serverUrl.newValue;
     if (changes.autoSend !== undefined) {
@@ -34,6 +46,12 @@
     }
     if (changes.includeThinking !== undefined) appSettings.includeThinking = changes.includeThinking.newValue;
   });
+
+  function setLocalAutoSend(val) {
+    appSettings.autoSend = Boolean(val);
+    chrome.storage.local.set({ autoSend: appSettings.autoSend });
+    updateAllToggleUI();
+  }
 
   function hashString(str) {
     let hash = 0;
@@ -62,7 +80,197 @@
     }, duration);
   }
 
-  // 3. Send message payload to background service worker (which POSTs to localhost)
+  // 4. Attach System Prompt as Markdown file to DeepSeek chat
+  function attachMarkdownFileToChat(filename, markdownContent) {
+    if (!markdownContent) return;
+
+    // Attach via DeepSeek's file input
+    const fileInput = document.querySelector('input[type="file"]');
+    if (fileInput) {
+      try {
+        const file = new File([markdownContent], filename, { type: 'text/markdown' });
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        fileInput.files = dataTransfer.files;
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+        console.log('[DeepSeek Bridge] Successfully attached file via fileInput:', filename);
+      } catch (err) {
+        console.error('[DeepSeek Bridge] Failed to attach file to fileInput:', err);
+      }
+    }
+
+    // Populate textarea with instruction if empty
+    const textarea = document.querySelector('textarea, [contenteditable="true"]');
+    if (textarea) {
+      const instructionText = `فایل پیوست‌شده \`${filename}\` حاوی دستورالعمل سیستم (System Prompt) و محیط پروژه است. لطفاً آن را به عنوان راهنمای قوانین پروژه و چارچوب کار مدنظر قرار بده.`;
+      if (textarea.tagName === 'TEXTAREA') {
+        if (!textarea.value.trim()) {
+          textarea.value = instructionText;
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      } else {
+        if (!textarea.innerText.trim()) {
+          textarea.innerText = instructionText;
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+    }
+  }
+
+  // 5. Open Project Setup Modal Dialog for new sessions
+  function openProjectSetupModal(sessionId, onConfirmed) {
+    let overlay = document.getElementById('ds-bridge-modal-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'ds-bridge-modal-overlay';
+      overlay.className = 'ds-bridge-modal-overlay';
+
+      overlay.innerHTML = `
+        <div class="ds-bridge-modal-box">
+          <div class="ds-bridge-modal-header">
+            <div class="ds-bridge-modal-title">
+              <span>📁 تنظیم پروژه محلی برای این گفتگو</span>
+            </div>
+            <button class="ds-bridge-modal-close" id="ds-modal-close-btn">&times;</button>
+          </div>
+          <div class="ds-bridge-modal-body">
+            <p class="ds-bridge-modal-desc">
+              این گفتگو هنوز در دیتابیس ثبت نشده است. لطفاً پوشه پروژه را انتخاب کنید تا سیستم پرامپت اختصاصی تولید و به عنوان فایل <code>.md</code> به چت ضمیمه شود.
+            </p>
+
+            <input type="file" webkitdirectory directory id="ds-folder-native-picker" style="display:none;">
+
+            <button type="button" class="ds-bridge-picker-btn" id="ds-folder-select-btn">
+              <span>📂 انتخاب پوشه پروژه از کامپیوتر</span>
+            </button>
+
+            <div class="ds-bridge-form-group">
+              <label class="ds-bridge-form-label">مسیر محلی پروژه (Project Path):</label>
+              <input type="text" class="ds-bridge-form-input" id="ds-modal-project-path" placeholder="مثال: C:\\Users\\3ircle\\Documents\\projects\\my-app">
+            </div>
+
+            <div class="ds-bridge-form-group">
+              <label class="ds-bridge-form-label">نام پروژه (اختیاری):</label>
+              <input type="text" class="ds-bridge-form-input" id="ds-modal-project-name" placeholder="نام پروژه">
+            </div>
+          </div>
+          <div class="ds-bridge-modal-footer">
+            <button type="button" class="ds-bridge-modal-btn-cancel" id="ds-modal-cancel-btn">انصراف</button>
+            <button type="button" class="ds-bridge-modal-btn-confirm" id="ds-modal-confirm-btn">
+              <span>🚀 تایید و ارسال سیستم پرامپت به چت</span>
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      const closeBtn = document.getElementById('ds-modal-close-btn');
+      const cancelBtn = document.getElementById('ds-modal-cancel-btn');
+      const confirmBtn = document.getElementById('ds-modal-confirm-btn');
+      const folderBtn = document.getElementById('ds-folder-select-btn');
+      const folderPicker = document.getElementById('ds-folder-native-picker');
+      const pathInput = document.getElementById('ds-modal-project-path');
+      const nameInput = document.getElementById('ds-modal-project-name');
+
+      function closeModal() {
+        overlay.classList.remove('open');
+      }
+
+      closeBtn.addEventListener('click', closeModal);
+      cancelBtn.addEventListener('click', closeModal);
+
+      folderBtn.addEventListener('click', () => {
+        folderPicker.click();
+      });
+
+      folderPicker.addEventListener('change', (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+          const firstPath = files[0].webkitRelativePath || '';
+          const folderName = firstPath.split('/')[0] || 'project';
+          nameInput.value = folderName;
+          pathInput.value = `C:\\Users\\3ircle\\Documents\\projects\\${folderName}`;
+          showToast(`پوشه "${folderName}" انتخاب شد`);
+        }
+      });
+
+      confirmBtn.addEventListener('click', () => {
+        const projectPath = pathInput.value.trim();
+        const projectName = nameInput.value.trim() || (projectPath ? projectPath.split(/[\\/]/).filter(Boolean).pop() : 'project');
+
+        if (!projectPath) {
+          showToast('لطفاً مسیر پروژه را مشخص یا انتخاب کنید', 'error');
+          pathInput.focus();
+          return;
+        }
+
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<span>⏳ در حال تولید سیستم پرامپت...</span>';
+
+        const sessionPayload = {
+          session_id: sessionId,
+          project_path: projectPath,
+          project_name: projectName
+        };
+
+        chrome.runtime.sendMessage({ action: 'CREATE_SESSION', sessionData: sessionPayload }, (res) => {
+          confirmBtn.disabled = false;
+          confirmBtn.innerHTML = '<span>🚀 تایید و ارسال سیستم پرامپت به چت</span>';
+
+          if (res && res.success) {
+            closeModal();
+            if (typeof onConfirmed === 'function') {
+              onConfirmed(res);
+            }
+          } else {
+            const err = (res && res.error) || 'خطا در ثبت سشن در سرور';
+            showToast(`خطا: ${err}`, 'error');
+          }
+        });
+      });
+    }
+
+    overlay.classList.add('open');
+    const pathInput = document.getElementById('ds-modal-project-path');
+    const nameInput = document.getElementById('ds-modal-project-name');
+    if (pathInput) pathInput.value = '';
+    if (nameInput) nameInput.value = '';
+  }
+
+  // 6. Handle Auto-Send toggle activation (Checks session existence first!)
+  function handleTurnOnAutoSend() {
+    const sessionId = getCurrentSessionId();
+    console.log('[DeepSeek Bridge] Checking session in backend:', sessionId);
+
+    const toggleBtn = document.getElementById('ds-bridge-auto-toggle');
+    const textSpan = toggleBtn?.querySelector('.ds-bridge-toggle-text');
+    if (textSpan) textSpan.textContent = 'بررسی سشن...';
+
+    chrome.runtime.sendMessage({ action: 'CHECK_SESSION', sessionId }, (res) => {
+      if (res && res.exists) {
+        // Session already saved in DB! Do nothing ("که هیچی"), just enable auto-send
+        console.log('[DeepSeek Bridge] Session already exists in DB:', res.session);
+        setLocalAutoSend(true);
+        const projectName = res.session?.project_name || 'ثبت‌شده';
+        showToast(`✓ ارسال خودکار فعال شد (پروژه: ${projectName})`, 'success');
+      } else {
+        // Session is new / not in DB! Prompt user for project folder
+        console.log('[DeepSeek Bridge] Session not found in DB. Opening project setup modal...');
+        if (textSpan) textSpan.textContent = 'ارسال خودکار: خاموش';
+        openProjectSetupModal(sessionId, (createdData) => {
+          setLocalAutoSend(true);
+          if (createdData && createdData.system_prompt) {
+            const filename = createdData.filename || 'system_prompt.md';
+            attachMarkdownFileToChat(filename, createdData.system_prompt);
+          }
+          showToast(`✓ سشن در دیتابیس ذخیره شد و فایل سیستم پرامپت به چت ضمیمه گردید!`, 'success', 5000);
+        });
+      }
+    });
+  }
+
+  // 7. Send message payload to background service worker (which POSTs to localhost)
   async function dispatchMessageToServer(messageData, isManual = false) {
     if (!messageData || !messageData.message || messageData.message.trim().length === 0) {
       if (isManual) showToast('متنی برای ارسال یافت نشد', 'error');
@@ -87,6 +295,7 @@
       model: messageData.model || 'deepseek',
       manual: isManual,
       url: window.location.href,
+      session_id: getCurrentSessionId(),
       timestamp: new Date().toISOString()
     };
 
@@ -107,7 +316,7 @@
     });
   }
 
-  // 4. Stream intercept from inject.js (Network layer)
+  // 8. Stream intercept from inject.js (Network layer)
   window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data) return;
 
@@ -117,7 +326,6 @@
       if (payload && payload.message) {
         latestExtractedMessage = payload;
         if (appSettings.autoSend) {
-          // Verify generation is not currently active on DOM
           setTimeout(() => {
             if (!isGeneratingActive()) {
               dispatchMessageToServer(payload, false);
@@ -130,9 +338,7 @@
 
   // --- Generation & Completion Detection ---
 
-  // Checks if DeepSeek is CURRENTLY generating text (Stop button or cursor active)
   function isGeneratingActive() {
-    // 1. Check for Stop generation button anywhere
     const buttons = document.querySelectorAll('button, div[role="button"]');
     for (const b of buttons) {
       const aria = (b.getAttribute('aria-label') || '').toLowerCase();
@@ -140,13 +346,11 @@
       if (aria.includes('stop') || txt.includes('stop') || txt.includes('توقف') || txt.includes('停止')) {
         return true;
       }
-      // Square/rect inside button SVG indicates Stop button
       if (b.querySelector('svg rect')) {
         return true;
       }
     }
 
-    // 2. Check for blinking streaming cursor element
     if (document.querySelector('.ds-cursor, [class*="ds-cursor"], [class*="blinking-cursor"]')) {
       return true;
     }
@@ -154,22 +358,18 @@
     return false;
   }
 
-  // Checks if an assistant message container is 100% finished
   function isMessageFullyCompleted(container) {
     if (!container) return false;
 
-    // If stop button is visible on page, generation is NOT finished
     if (isGeneratingActive()) {
       return false;
     }
 
-    // In DeepSeek, the Copy button only renders once the response has completely finished generating!
     const copyBtn = container.querySelector('[aria-label*="Copy"], [aria-label*="کپی"], [title*="Copy"], [title*="کپی"], svg[class*="copy"]');
     if (copyBtn) {
       return true;
     }
 
-    // Alternative: check if action bar (like thumbs up/down, retry) has rendered
     const actionGroup = container.querySelector('[class*="action"], [class*="tool"], [class*="operate"], [class*="button-group"]');
     if (actionGroup && actionGroup.children.length >= 2) {
       return true;
@@ -178,16 +378,13 @@
     return false;
   }
 
-  // Extract clean text and reasoning from an assistant message container
   function extractAssistantMessage(container) {
     if (!container) return null;
 
-    // Look for markdown content element
     const mdEl = container.matches('.ds-markdown, [class*="ds-markdown"], [class*="markdown"], [class*="prose"]')
       ? container
       : container.querySelector('.ds-markdown, [class*="ds-markdown"], [class*="markdown"], [class*="prose"]');
 
-    // Look for reasoning/thinking block (DeepSeek R1)
     let thinking = null;
     const thinkEl = container.querySelector('[class*="ds-think"], [class*="think"], details, [class*="reasoning"]');
     if (thinkEl) {
@@ -197,10 +394,8 @@
     let messageText = '';
     if (mdEl) {
       const clone = mdEl.cloneNode(true);
-      // Remove thinking element from main body if nested
       const innerThink = clone.querySelector('[class*="ds-think"], [class*="think"], details, [class*="reasoning"]');
       if (innerThink) innerThink.remove();
-      // Remove our injected extension buttons
       clone.querySelectorAll('.ds-bridge-msg-btn').forEach(el => el.remove());
       messageText = clone.innerText.trim();
     } else {
@@ -219,7 +414,6 @@
     };
   }
 
-  // Find all assistant message elements in the chat
   function getAllAssistantContainers() {
     const mdElements = document.querySelectorAll('.ds-markdown, [class*="ds-markdown"], [class*="markdown"], [class*="prose"]');
     const list = [];
@@ -248,7 +442,6 @@
   function injectInputToolbarToggle() {
     const existingToggle = document.getElementById('ds-bridge-auto-toggle');
     if (existingToggle) {
-      // Sync active state
       if (appSettings.autoSend && !existingToggle.classList.contains('active')) {
         existingToggle.classList.add('active');
         const text = existingToggle.querySelector('.ds-bridge-toggle-text');
@@ -261,7 +454,6 @@
       return;
     }
 
-    // 1. Locate Search and DeepThink buttons/elements
     let searchEl = null;
     let deepThinkEl = null;
 
@@ -281,20 +473,17 @@
     let insertAfterPill = null;
 
     if (searchEl && deepThinkEl) {
-      // Climb up from searchEl until its parent contains deepThinkEl
-      // That parent is the common toolbar row holding all pills!
       let curr = searchEl;
       while (curr && curr.parentElement && !curr.parentElement.contains(deepThinkEl)) {
         curr = curr.parentElement;
       }
       if (curr && curr.parentElement) {
         targetToolbar = curr.parentElement;
-        insertAfterPill = curr; // The outermost wrapper of Search pill in the toolbar
+        insertAfterPill = curr;
       }
     } else if (searchEl || deepThinkEl) {
       const ref = searchEl || deepThinkEl;
       let curr = ref;
-      // Climb up past single-child wrappers to find the multi-child toolbar row
       while (curr && curr.parentElement && curr.parentElement !== document.body && curr.parentElement.children.length === 1) {
         curr = curr.parentElement;
       }
@@ -304,7 +493,6 @@
       }
     }
 
-    // Fallback: look near chat textarea
     if (!targetToolbar) {
       const textarea = document.querySelector('textarea, [contenteditable="true"]');
       if (textarea) {
@@ -318,7 +506,6 @@
 
     if (!targetToolbar) return;
 
-    // Create the independent pill toggle button
     const toggleBtn = document.createElement('button');
     toggleBtn.id = 'ds-bridge-auto-toggle';
     toggleBtn.className = 'ds-bridge-pill-toggle ' + (appSettings.autoSend ? 'active' : '');
@@ -337,25 +524,12 @@
       e.preventDefault();
       e.stopPropagation();
 
-      appSettings.autoSend = !appSettings.autoSend;
-
-      // Update button visual
-      toggleBtn.className = 'ds-bridge-pill-toggle ' + (appSettings.autoSend ? 'active' : '');
-      const textSpan = toggleBtn.querySelector('.ds-bridge-toggle-text');
-      if (textSpan) {
-        textSpan.textContent = appSettings.autoSend ? 'ارسال خودکار: روشن' : 'ارسال خودکار: خاموش';
-      }
-
-      // Save to chrome storage
-      chrome.storage.local.set({ autoSend: appSettings.autoSend });
-
-      // Sync floating widget checkbox
-      const autoCheckbox = document.getElementById('ds-bridge-auto-checkbox');
-      if (autoCheckbox) autoCheckbox.checked = appSettings.autoSend;
-
-      if (appSettings.autoSend) {
-        showToast('✓ ارسال خودکار پیام‌ها فعال شد (پیام‌ها پس از کامل شدن ارسال می‌شوند)', 'success');
+      if (!appSettings.autoSend) {
+        // Turning ON: check if session exists in DB or prompt for project folder!
+        handleTurnOnAutoSend();
       } else {
+        // Turning OFF
+        setLocalAutoSend(false);
         showToast('ارسال خودکار پیام‌ها غیرفعال شد', 'info');
       }
     });
@@ -369,7 +543,6 @@
     console.log('[DeepSeek Bridge] Injected Auto-Send pill toggle in DeepSeek toolbar!');
   }
 
-  // Update all toggle UIs across page
   function updateAllToggleUI() {
     const pillToggle = document.getElementById('ds-bridge-auto-toggle');
     if (pillToggle) {
@@ -448,13 +621,9 @@
 
   // --- Main DOM Observer & Auto-Send Trigger ---
   function handleDomUpdate() {
-    // 1. Ensure pill toggle is present in toolbar
     injectInputToolbarToggle();
-
-    // 2. Ensure message action buttons are present
     injectMessageButtons();
 
-    // 3. Monitor assistant messages
     const containers = getAllAssistantContainers();
     if (containers.length === 0) return;
 
@@ -475,14 +644,12 @@
       return;
     }
 
-    // Check if generation just finished or message is confirmed complete
     const isCompleted = isMessageFullyCompleted(latestContainer);
 
     if (currentLength !== lastObservedLength || isCurrentlyStreaming) {
       lastObservedLength = currentLength;
       clearTimeout(textStabilityTimer);
 
-      // Wait for text stability (at least 1500ms after text stops growing)
       textStabilityTimer = setTimeout(() => {
         const stillGenerating = isGeneratingActive();
         if (!stillGenerating && currentLength > 0) {
@@ -499,7 +666,6 @@
         }
       }, 1500);
     } else if (isCompleted) {
-      // Copy button is present and not generating -> definitively complete!
       const hash = hashString(data.message.trim());
       if (appSettings.autoSend && !sentMessageHashes.has(hash)) {
         console.log('[DeepSeek Bridge] Full completion confirmed via Copy button. Sending...');
@@ -511,7 +677,6 @@
     }
   }
 
-  // Setup DOM Observer
   const observer = new MutationObserver(() => {
     handleDomUpdate();
   });
@@ -573,10 +738,12 @@
     });
 
     autoCheckbox.addEventListener('change', (e) => {
-      appSettings.autoSend = e.target.checked;
-      chrome.storage.local.set({ autoSend: e.target.checked });
-      updateAllToggleUI();
-      showToast(`ارسال خودکار: ${e.target.checked ? 'فعال شد' : 'غیرفعال شد'}`);
+      if (e.target.checked) {
+        handleTurnOnAutoSend();
+      } else {
+        setLocalAutoSend(false);
+        showToast('ارسال خودکار پیام‌ها غیرفعال شد');
+      }
     });
 
     sendLastBtn.addEventListener('click', (e) => {
@@ -648,13 +815,11 @@
     injectMessageButtons();
   }
 
-  // Run periodic check for toolbar in case SPA renders slowly
   const checkInterval = setInterval(() => {
     injectInputToolbarToggle();
     injectMessageButtons();
   }, 1000);
 
-  // Initial connection ping
   setTimeout(() => {
     chrome.runtime.sendMessage({ action: 'TEST_CONNECTION' }, (res) => {
       if (res && res.connected) {

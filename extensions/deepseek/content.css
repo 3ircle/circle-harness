@@ -284,3 +284,189 @@
   box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
 }
 
+/* Project Setup Modal Dialog */
+.ds-bridge-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  direction: rtl;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Vazirmatn", sans-serif;
+}
+
+.ds-bridge-modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ds-bridge-modal-box {
+  background: #181d28;
+  border: 1px solid #2d3748;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 480px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  transform: scale(0.95);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  color: #f1f5f9;
+}
+
+.ds-bridge-modal-overlay.open .ds-bridge-modal-box {
+  transform: scale(1);
+}
+
+.ds-bridge-modal-header {
+  padding: 18px 20px;
+  border-bottom: 1px solid #262f40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ds-bridge-modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ds-bridge-modal-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 4px;
+  line-height: 1;
+}
+
+.ds-bridge-modal-close:hover {
+  color: #ffffff;
+}
+
+.ds-bridge-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ds-bridge-modal-desc {
+  font-size: 12.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.ds-bridge-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #1e293b;
+  border: 1px dashed #3b82f6;
+  border-radius: 10px;
+  padding: 12px 16px;
+  color: #60a5fa;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.ds-bridge-picker-btn:hover {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: #60a5fa;
+  color: #93c5fd;
+}
+
+.ds-bridge-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ds-bridge-form-label {
+  font-size: 11.5px;
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+.ds-bridge-form-input {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: #ffffff;
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.2s;
+  direction: ltr;
+  font-family: monospace;
+}
+
+.ds-bridge-form-input:focus {
+  border-color: #3b82f6;
+}
+
+.ds-bridge-modal-footer {
+  padding: 14px 20px;
+  background: #131722;
+  border-top: 1px solid #262f40;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.ds-bridge-modal-btn-confirm {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ds-bridge-modal-btn-confirm:hover {
+  background: #1d4ed8;
+}
+
+.ds-bridge-modal-btn-confirm:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.ds-bridge-modal-btn-cancel {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.ds-bridge-modal-btn-cancel:hover {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+

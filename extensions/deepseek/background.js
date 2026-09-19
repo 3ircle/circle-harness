@@ -16,7 +16,6 @@ chrome.runtime.onInstalled.addListener(async () => {
       updates[key] = value;
     }
   }
-  // If previously saved as http://localhost:8000/chat (without slash), update to /chat/
   if (current.serverUrl === 'http://localhost:8000/chat') {
     updates.serverUrl = 'http://localhost:8000/chat/';
   }
@@ -49,12 +48,10 @@ async function addToHistory(item) {
   }
 }
 
-// Perform fetch with automatic slash-retry (Django compatibility)
+// Perform fetch with automatic slash-retry
 async function fetchWithRetry(url, options) {
-  // First attempt
   try {
     const response = await fetch(url, options);
-    // If response is 500, 404, or 301, try alternate slash
     if (response.status === 500 || response.status === 404 || response.status === 301) {
       const alternateUrl = url.endsWith('/') ? url.slice(0, -1) : url + '/';
       console.warn(`[DeepSeek Bridge] Got status ${response.status} from ${url}, retrying with ${alternateUrl}`);
@@ -64,23 +61,93 @@ async function fetchWithRetry(url, options) {
           return { response: altResponse, usedUrl: alternateUrl };
         }
       } catch (altErr) {
-        // Fall back to original response
+        // Fall back to original
       }
     }
     return { response, usedUrl: url };
   } catch (err) {
-    // If network failed on original, try alternate slash
     const alternateUrl = url.endsWith('/') ? url.slice(0, -1) : url + '/';
     try {
       const altResponse = await fetch(alternateUrl, options);
       return { response: altResponse, usedUrl: alternateUrl };
     } catch (e) {
-      throw err; // throw original error
+      throw err;
     }
   }
 }
 
-// Forward payload to localhost
+// Helper to get base API URL
+function getBaseUrl(serverUrl) {
+  let cleaned = (serverUrl || DEFAULT_SETTINGS.serverUrl).trim();
+  return cleaned.replace(/\/chat\/?$/, '');
+}
+
+// Check if a session exists in the backend DB
+async function checkSessionInBackend(sessionId) {
+  const settings = await getSettings();
+  const baseUrl = getBaseUrl(settings.serverUrl);
+  const targetUrl = `${baseUrl}/chat/sessions/${encodeURIComponent(sessionId)}/`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    const { response } = await fetchWithRetry(targetUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const data = await response.json();
+      return { success: true, ...data };
+    }
+
+    return { success: false, exists: false, error: `HTTP ${response.status}` };
+  } catch (err) {
+    console.error('[DeepSeek Bridge] checkSessionInBackend error:', err);
+    return { success: false, exists: false, error: err.message };
+  }
+}
+
+// Create or update a session in the backend DB
+async function createSessionInBackend(sessionData) {
+  const settings = await getSettings();
+  const baseUrl = getBaseUrl(settings.serverUrl);
+  const targetUrl = `${baseUrl}/chat/sessions/`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    const { response } = await fetchWithRetry(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(sessionData),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const data = await response.json();
+      return { success: true, ...data };
+    }
+
+    const text = await response.text();
+    return { success: false, error: `HTTP ${response.status}: ${text}` };
+  } catch (err) {
+    console.error('[DeepSeek Bridge] createSessionInBackend error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// Forward chat message payload to localhost
 async function sendChatToServer(chatData) {
   const settings = await getSettings();
   let targetUrl = (settings.serverUrl || DEFAULT_SETTINGS.serverUrl).trim();
@@ -93,7 +160,7 @@ async function sendChatToServer(chatData) {
     timestamp: chatData.timestamp || new Date().toISOString(),
     source: 'deepseek-web',
     url: chatData.url || '',
-    session_id: chatData.sessionId || null,
+    session_id: chatData.sessionId || chatData.session_id || null,
     manual: Boolean(chatData.manual)
   };
 
@@ -110,7 +177,6 @@ async function sendChatToServer(chatData) {
 
   try {
     console.log('[DeepSeek Bridge] Sending POST to:', targetUrl);
-    console.log('[DeepSeek Bridge] Message preview:', payload.message.substring(0, 80));
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -148,8 +214,6 @@ async function sendChatToServer(chatData) {
 
     await addToHistory(historyEntry);
 
-    console.log(`[DeepSeek Bridge] Result: ${response.status} from ${usedUrl}`);
-
     return {
       success: response.ok,
       status: response.status,
@@ -182,7 +246,6 @@ async function testConnection(customUrl) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    // Payload includes message field for Django serializer compatibility
     const testPayload = {
       message: 'DeepSeek Bridge connection test',
       ping: true,
@@ -220,6 +283,16 @@ async function testConnection(customUrl) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'SEND_CHAT') {
     sendChatToServer(request.data).then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'CHECK_SESSION') {
+    checkSessionInBackend(request.sessionId).then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'CREATE_SESSION') {
+    createSessionInBackend(request.sessionData).then(sendResponse);
     return true;
   }
 
