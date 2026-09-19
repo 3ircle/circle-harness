@@ -42,9 +42,10 @@ INSTALLED_APPS = [
     "rest_framework",
     
     
-    # modules 
+    # modules
     'chat_module',
-    'utils_module'
+    'utils_module',
+    'tools_module',
     
 ]
 

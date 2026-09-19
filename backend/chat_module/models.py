@@ -10,6 +10,11 @@ class ChatSession(models.Model):
     project_name = models.CharField(max_length=255, blank=True, default="", verbose_name="Project Name")
     os = models.CharField(max_length=100, blank=True, default="", verbose_name="Operating System")
     shell = models.CharField(max_length=100, blank=True, default="", verbose_name="Shell")
+    permission_mode = models.CharField(
+        max_length=50,
+        default="bypass_permissions",
+        verbose_name="Permission Execution Mode"
+    )
     system_prompt = models.TextField(blank=True, default="", verbose_name="Generated System Prompt")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At")

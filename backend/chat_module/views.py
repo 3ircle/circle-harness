@@ -7,6 +7,7 @@ from rest_framework import status
 from .models import ChatSession, ChatMessage
 from .serializers import MessageSerializer, SystemPromptSerializer, ChatSessionSerializer
 from utils_module.utils import genarate_system_prompt, build_system_prompt, get_default_environment
+from tools_module import ToolRegistry, PermissionMode
 
 # Ensure stdout handles UTF-8 / Persian unicode safely across Windows terminals
 try:
@@ -31,12 +32,10 @@ class MessageView(generics.GenericAPIView):
         url = data.get("url", "")
         session_id = data.get("session_id") or ""
 
-        # Link to ChatSession if exists
         chat_session = None
         if session_id:
             chat_session = ChatSession.objects.filter(session_id=session_id).first()
 
-        # Persist message to database
         saved_msg = ChatMessage.objects.create(
             session=chat_session,
             session_slug=session_id,
@@ -47,7 +46,6 @@ class MessageView(generics.GenericAPIView):
             url=url,
         )
 
-        # Print message clearly to terminal
         print("\n" + "=" * 70)
         print(f"📩 [New Message Received] (ID: #{saved_msg.id} | Session: {session_id or 'unknown'})")
         if thinking_text:
@@ -103,6 +101,7 @@ class SessionDetailView(generics.GenericAPIView):
                         "project_name": session.project_name,
                         "os": session.os,
                         "shell": session.shell,
+                        "permission_mode": session.permission_mode,
                         "system_prompt": session.system_prompt,
                         "created_at": session.created_at.isoformat(),
                     },
@@ -121,8 +120,8 @@ class SessionDetailView(generics.GenericAPIView):
 
 class SessionCreateOrUpdateView(generics.GenericAPIView):
     """
-    Registers or updates a session with its project workspace.
-    Generates tailored system prompt and saves it to the database.
+    Registers or updates a session with its project workspace and permission mode.
+    Generates tailored system prompt with tools documentation and saves to DB.
     POST /chat/sessions/
     """
     serializer_class = ChatSessionSerializer
@@ -139,6 +138,7 @@ class SessionCreateOrUpdateView(generics.GenericAPIView):
 
         project_path = data.get("project_path", "").strip()
         project_name = data.get("project_name", "").strip()
+        permission_mode = data.get("permission_mode", "bypass_permissions").strip()
 
         if not project_name and project_path:
             clean_path = os.path.normpath(project_path)
@@ -148,14 +148,13 @@ class SessionCreateOrUpdateView(generics.GenericAPIView):
         env_os = data.get("os") or defaults["os"]
         env_shell = data.get("shell") or defaults["shell"]
 
-        # Build tailored system prompt for this project
         prompt_params = {
             "os": env_os,
             "shell": env_shell,
             "working_directory": project_path or defaults["working_directory"],
             "repository": project_name or defaults["repository"],
-            "has_tools": False,
-            "available_tools": [],
+            "permission_mode": permission_mode,
+            "has_tools": True,
         }
         system_prompt = build_system_prompt(prompt_params)
 
@@ -166,13 +165,14 @@ class SessionCreateOrUpdateView(generics.GenericAPIView):
                 "project_name": project_name,
                 "os": env_os,
                 "shell": env_shell,
+                "permission_mode": permission_mode,
                 "system_prompt": system_prompt,
             },
         )
 
         filename = f"{project_name or 'project'}_system_prompt.md"
 
-        print(f"[ChatSession] {'Created' if created else 'Updated'} session '{session_id}' for project '{project_name}'")
+        print(f"[ChatSession] {'Created' if created else 'Updated'} session '{session_id}' for project '{project_name}' (Mode: {permission_mode})")
 
         return Response(
             {
@@ -181,8 +181,72 @@ class SessionCreateOrUpdateView(generics.GenericAPIView):
                 "session_id": session.session_id,
                 "project_path": session.project_path,
                 "project_name": session.project_name,
+                "permission_mode": session.permission_mode,
                 "system_prompt": session.system_prompt,
                 "filename": filename,
             },
             status=status.HTTP_200_OK,
         )
+
+
+class SessionModeUpdateView(generics.GenericAPIView):
+    """
+    Updates the permission execution mode of an existing session.
+    POST /chat/sessions/<session_id>/mode/
+    """
+
+    def post(self, request, session_id, *args, **kwargs):
+        mode = request.data.get("mode", "bypass_permissions")
+        session = ChatSession.objects.filter(session_id=session_id.strip()).first()
+
+        if not session:
+            return Response({"error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        session.permission_mode = mode
+
+        # Rebuild prompt with new mode
+        defaults = get_default_environment()
+        prompt_params = {
+            "os": session.os or defaults["os"],
+            "shell": session.shell or defaults["shell"],
+            "working_directory": session.project_path or defaults["working_directory"],
+            "repository": session.project_name or defaults["repository"],
+            "permission_mode": mode,
+            "has_tools": True,
+        }
+        session.system_prompt = build_system_prompt(prompt_params)
+        session.save()
+
+        print(f"[ChatSession] Switched mode to '{mode}' for session '{session_id}'")
+
+        return Response(
+            {
+                "success": True,
+                "session_id": session.session_id,
+                "permission_mode": session.permission_mode,
+                "system_prompt": session.system_prompt,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ToolExecuteView(generics.GenericAPIView):
+    """
+    Executes a tool on the host under the session's permission mode.
+    POST /chat/tools/execute/
+    Payload: { "tool": "read_file", "params": {...}, "session_id": "..." }
+    """
+
+    def post(self, request, *args, **kwargs):
+        tool_name = request.data.get("tool")
+        params = request.data.get("params", {})
+        session_id = request.data.get("session_id", "")
+
+        mode = "bypass_permissions"
+        if session_id:
+            session = ChatSession.objects.filter(session_id=session_id).first()
+            if session:
+                mode = session.permission_mode
+
+        result = ToolRegistry.execute_tool(tool_name, params, mode=mode)
+        return Response(result.to_dict(), status=status.HTTP_200_OK)

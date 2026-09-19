@@ -53,6 +53,48 @@
     updateAllToggleUI();
   }
 
+  // Active permission mode (manual, accept_edits, plan, bypass_permissions)
+  let activePermissionMode = 'bypass_permissions';
+
+  const MODE_METADATA = {
+    'manual': { title: 'Manual', desc: 'Always ask before making changes', num: '1' },
+    'accept_edits': { title: 'Accept edits', desc: 'Automatically accept all file edits', num: '2' },
+    'plan': { title: 'Plan', desc: 'Create a plan before making changes', num: '3' },
+    'bypass_permissions': { title: 'Bypass permissions', desc: 'Accepts all permissions', num: '4' }
+  };
+
+  chrome.storage.local.get(['permissionMode'], (res) => {
+    if (res && res.permissionMode) {
+      activePermissionMode = res.permissionMode;
+      updateModePillUI();
+    }
+  });
+
+  function updateModePillUI() {
+    const label = document.getElementById('ds-bridge-mode-label');
+    const btn = document.getElementById('ds-bridge-mode-btn');
+    if (!label || !btn) return;
+
+    const info = MODE_METADATA[activePermissionMode] || MODE_METADATA['bypass_permissions'];
+    label.textContent = info.title;
+
+    btn.className = 'ds-bridge-mode-pill ' + (
+      activePermissionMode === 'bypass_permissions' ? 'active-bypass' :
+      activePermissionMode === 'plan' ? 'active-plan' :
+      activePermissionMode === 'accept_edits' ? 'active-accept' : ''
+    );
+
+    const items = document.querySelectorAll('.ds-bridge-mode-item');
+    items.forEach(item => {
+      const mode = item.getAttribute('data-mode');
+      if (mode === activePermissionMode) {
+        item.classList.add('selected');
+      } else {
+        item.classList.remove('selected');
+      }
+    });
+  }
+
   function hashString(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -211,7 +253,8 @@
         const sessionPayload = {
           session_id: sessionId,
           project_path: projectPath,
-          project_name: projectName
+          project_name: projectName,
+          permission_mode: activePermissionMode
         };
 
         chrome.runtime.sendMessage({ action: 'CREATE_SESSION', sessionData: sessionPayload }, (res) => {
@@ -540,7 +583,125 @@
       targetToolbar.appendChild(toggleBtn);
     }
 
+    // Inject Permission Mode pill right next to toggleBtn
+    injectPermissionModePill(targetToolbar, toggleBtn);
+
     console.log('[DeepSeek Bridge] Injected Auto-Send pill toggle in DeepSeek toolbar!');
+  }
+
+  // --- Permission Mode Pill & Popover Menu ---
+  function injectPermissionModePill(targetToolbar, insertAfterEl) {
+    if (document.getElementById('ds-bridge-mode-wrapper')) {
+      updateModePillUI();
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.id = 'ds-bridge-mode-wrapper';
+    wrapper.className = 'ds-bridge-mode-wrapper';
+
+    const info = MODE_METADATA[activePermissionMode] || MODE_METADATA['bypass_permissions'];
+
+    wrapper.innerHTML = `
+      <button type="button" class="ds-bridge-mode-pill active-bypass" id="ds-bridge-mode-btn" title="حالت سطح دسترسی اجرای ابزارها (کلیک برای انتخاب)">
+        <span class="ds-bridge-mode-label" id="ds-bridge-mode-label">${info.title}</span>
+        <span style="font-size: 10px; opacity: 0.7;">▾</span>
+      </button>
+
+      <div class="ds-bridge-mode-popover" id="ds-bridge-mode-popover">
+        <div class="ds-bridge-mode-header">Mode</div>
+
+        <div class="ds-bridge-mode-item" data-mode="manual">
+          <div class="ds-bridge-mode-item-left">
+            <span class="ds-bridge-mode-item-title">Manual</span>
+            <span class="ds-bridge-mode-item-desc">Always ask before making changes</span>
+          </div>
+          <div class="ds-bridge-mode-item-right">
+            <span class="ds-bridge-mode-check">✓</span>
+            <span class="ds-bridge-mode-num">1</span>
+          </div>
+        </div>
+
+        <div class="ds-bridge-mode-item" data-mode="accept_edits">
+          <div class="ds-bridge-mode-item-left">
+            <span class="ds-bridge-mode-item-title">Accept edits</span>
+            <span class="ds-bridge-mode-item-desc">Automatically accept all file edits</span>
+          </div>
+          <div class="ds-bridge-mode-item-right">
+            <span class="ds-bridge-mode-check">✓</span>
+            <span class="ds-bridge-mode-num">2</span>
+          </div>
+        </div>
+
+        <div class="ds-bridge-mode-item" data-mode="plan">
+          <div class="ds-bridge-mode-item-left">
+            <span class="ds-bridge-mode-item-title">Plan</span>
+            <span class="ds-bridge-mode-item-desc">Create a plan before making changes</span>
+          </div>
+          <div class="ds-bridge-mode-item-right">
+            <span class="ds-bridge-mode-check">✓</span>
+            <span class="ds-bridge-mode-num">3</span>
+          </div>
+        </div>
+
+        <div class="ds-bridge-mode-item selected" data-mode="bypass_permissions">
+          <div class="ds-bridge-mode-item-left">
+            <span class="ds-bridge-mode-item-title">Bypass permissions</span>
+            <span class="ds-bridge-mode-item-desc">Accepts all permissions</span>
+          </div>
+          <div class="ds-bridge-mode-item-right">
+            <span class="ds-bridge-mode-check">✓</span>
+            <span class="ds-bridge-mode-num">4</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    if (insertAfterEl && insertAfterEl.nextSibling) {
+      targetToolbar.insertBefore(wrapper, insertAfterEl.nextSibling);
+    } else {
+      targetToolbar.appendChild(wrapper);
+    }
+
+    const modeBtn = wrapper.querySelector('#ds-bridge-mode-btn');
+    const popover = wrapper.querySelector('#ds-bridge-mode-popover');
+    const items = wrapper.querySelectorAll('.ds-bridge-mode-item');
+
+    modeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      popover.classList.toggle('open');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!wrapper.contains(e.target)) {
+        popover.classList.remove('open');
+      }
+    });
+
+    items.forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const selectedMode = item.getAttribute('data-mode');
+        activePermissionMode = selectedMode;
+        chrome.storage.local.set({ permissionMode: selectedMode });
+        updateModePillUI();
+        popover.classList.remove('open');
+
+        const sessionId = getCurrentSessionId();
+        chrome.runtime.sendMessage({
+          action: 'SET_SESSION_MODE',
+          sessionId: sessionId,
+          mode: selectedMode
+        });
+
+        const selectedInfo = MODE_METADATA[selectedMode] || { title: selectedMode, desc: '' };
+        showToast(`سطح دسترسی: ${selectedInfo.title} (${selectedInfo.desc})`);
+      });
+    });
+
+    updateModePillUI();
+    console.log('[DeepSeek Bridge] Injected Permission Mode pill dropdown into DeepSeek toolbar!');
   }
 
   function updateAllToggleUI() {
