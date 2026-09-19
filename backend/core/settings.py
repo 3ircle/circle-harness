@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-gbjitun-mx@d0uv%t^t5e-&e+!!91bvbw#-)0k%+tzytn7ib!%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -43,7 +43,8 @@ INSTALLED_APPS = [
     
     
     # modules 
-    'chat_module'
+    'chat_module',
+    'utils_module'
     
 ]
 
