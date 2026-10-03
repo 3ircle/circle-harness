@@ -70,9 +70,16 @@ class ToolRegistry:
         return "\n".join(docs).strip()
 
     @classmethod
-    def execute_tool(cls, name: str, params: dict, mode: str = PermissionMode.BYPASS_PERMISSIONS.value) -> ToolResult:
+    def execute_tool(
+        cls,
+        name: str,
+        params: dict,
+        mode: str = PermissionMode.BYPASS_PERMISSIONS.value,
+        bypass_approval: bool = False
+    ) -> ToolResult:
         """
         Checks permission against the specified mode and executes the tool.
+        If bypass_approval is True, user has explicitly confirmed execution via the web UI.
         """
         tool = cls.get(name)
         if not tool:
@@ -81,21 +88,22 @@ class ToolRegistry:
                 error=f"Tool '{name}' is not registered in ToolRegistry. Available tools: {cls.list_tool_names()}"
             )
 
-        # Check permissions
-        perm_check = PermissionManager.check_permission(tool.category, PermissionMode(mode))
-        if not perm_check["allowed"]:
-            return ToolResult(
-                success=False,
-                error=f"Permission Denied in '{mode}' mode: {perm_check['reason']}",
-                metadata={"permission_denied": True, "requires_approval": perm_check["requires_approval"]}
-            )
+        if not bypass_approval:
+            # Check permissions
+            perm_check = PermissionManager.check_permission(tool.category, PermissionMode(mode))
+            if not perm_check["allowed"]:
+                return ToolResult(
+                    success=False,
+                    error=f"Permission Denied in '{mode}' mode: {perm_check['reason']}",
+                    metadata={"permission_denied": True, "requires_approval": perm_check["requires_approval"]}
+                )
 
-        if perm_check["requires_approval"]:
-            return ToolResult(
-                success=False,
-                error=f"Permission Approval Required: {perm_check['reason']}",
-                metadata={"requires_approval": True, "tool_name": name, "params": params}
-            )
+            if perm_check["requires_approval"]:
+                return ToolResult(
+                    success=False,
+                    error=f"Permission Approval Required: {perm_check['reason']}",
+                    metadata={"requires_approval": True, "tool_name": name, "params": params}
+                )
 
         try:
             return tool.execute(**params)

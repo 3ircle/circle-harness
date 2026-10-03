@@ -445,12 +445,41 @@
       : [{ tool: toolExec.tool || 'unknown', params: toolExec.params || {}, reason: toolExec.reason || '' }];
 
     const toolBadge = approvalItems.map(it => it.tool).join(', ');
-    const paramsJson = JSON.stringify(
-      approvalItems.length === 1 ? approvalItems[0].params : approvalItems.map(it => ({ tool: it.tool, params: it.params })),
-      null,
-      2
-    );
-    const reasonText = toolExec.reason || 'اجرای این ابزارها نیازمند تایید شماست.';
+    const reasonText = toolExec.reason || 'اجرای این دستور نیازمند تایید شما در صفحه وب است.';
+
+    function formatToolDetailsHtml(item) {
+      const tool = item.tool || '';
+      const params = item.params || {};
+      if (tool === 'bash') {
+        const cmd = params.command || '';
+        const cwd = params.cwd ? `<div style="font-size: 10.5px; color: #94a3b8; margin-top: 4px; direction: ltr; text-align: left;">📁 CWD: <code>${escapeHtml(params.cwd)}</code></div>` : '';
+        return `
+          <div class="ds-bridge-tool-item-preview">
+            <div class="ds-bridge-tool-cmd-box">
+              <span class="ds-bridge-tool-prompt">$</span>
+              <code class="ds-bridge-code-line">${escapeHtml(cmd)}</code>
+            </div>
+            ${cwd}
+          </div>
+        `;
+      }
+      if (tool === 'write_file' || tool === 'edit_file') {
+        const fp = params.file_path || '';
+        const isEdit = tool === 'edit_file';
+        return `
+          <div class="ds-bridge-tool-item-preview">
+            <div style="font-size: 12px; color: #f1f5f9; font-weight: 500; direction: ltr; text-align: left;">
+              📄 <span style="color: #60a5fa;">${isEdit ? 'ویرایش فایل' : 'نوشتن فایل'}:</span> <code>${escapeHtml(fp)}</code>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="ds-bridge-tool-params">${escapeHtml(JSON.stringify(params, null, 2))}</div>
+      `;
+    }
+
+    const itemsPreviewHtml = approvalItems.map(item => formatToolDetailsHtml(item)).join('');
 
     card.innerHTML = `
       <div class="ds-bridge-tool-header">
@@ -458,12 +487,14 @@
           <span>⚡ درخواست اجرای ${approvalItems.length > 1 ? approvalItems.length + ' ابزار' : 'ابزار'}</span>
           <span class="ds-bridge-tool-badge">${toolBadge}</span>
         </div>
-        <span style="font-size: 11px; color: #f59e0b;">تایید دسترسی</span>
+        <span class="ds-bridge-tool-status-tag">نیازمند تایید</span>
       </div>
 
       <div class="ds-bridge-tool-reason">${reasonText}</div>
 
-      <div class="ds-bridge-tool-params">${escapeHtml(paramsJson)}</div>
+      <div class="ds-bridge-tool-items-container">
+        ${itemsPreviewHtml}
+      </div>
 
       <div class="ds-bridge-tool-actions">
         <button type="button" class="ds-bridge-tool-btn-approve" id="ds-tool-approve-btn">
@@ -482,7 +513,8 @@
 
     approveBtn.addEventListener('click', () => {
       approveBtn.disabled = true;
-      approveBtn.innerHTML = '<span>⏳ در حال اجرا...</span>';
+      approveBtn.innerHTML = '<span>⏳ در حال اجرا روی سیستم...</span>';
+      if (denyBtn) denyBtn.disabled = true;
 
       const sessionId = getCurrentSessionId();
       const toolsToRun = approvalItems.map(it => ({ tool: it.tool, params: it.params }));
@@ -496,9 +528,17 @@
         }
       }, (res) => {
         card.remove();
+
+        // Assemble previous outputs (if any tools executed automatically earlier in this turn)
+        const prevBlocks = (toolExec.executed_so_far || []).map(item => {
+          const blk = { tool_result: item.result };
+          return "```json\n" + JSON.stringify(blk, null, 2) + "\n```";
+        });
+
         if (res && res.chat_reply) {
           showToast(`✓ ابزارها با موفقیت اجرا شدند`, 'success');
-          sendReplyToDeepSeekChat(res.chat_reply);
+          const combined = [...prevBlocks, res.chat_reply].filter(Boolean).join("\n\n");
+          sendReplyToDeepSeekChat(combined);
         } else if (res && res.success) {
           showToast(`✓ ابزار "${toolBadge}" اجرا شد`, 'success');
           const replyDict = {
@@ -510,7 +550,8 @@
             }
           };
           const chatReply = "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
-          sendReplyToDeepSeekChat(chatReply);
+          const combined = [...prevBlocks, chatReply].filter(Boolean).join("\n\n");
+          sendReplyToDeepSeekChat(combined);
         } else {
           const err = (res && res.error) || 'خطا در اجرا';
           showToast(`خطا در اجرای ابزار: ${err}`, 'error');
@@ -524,25 +565,34 @@
             };
             return "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
           });
-          sendReplyToDeepSeekChat(replyBlocks.join("\n\n"));
+          const combined = [...prevBlocks, ...replyBlocks].filter(Boolean).join("\n\n");
+          sendReplyToDeepSeekChat(combined);
         }
       });
     });
 
     denyBtn.addEventListener('click', () => {
       card.remove();
-      showToast(`درخواست اجرای ابزارها رد شد`, 'info');
+      showToast(`درخواست اجرای ابزار توسط شما رد شد`, 'info');
+
+      const prevBlocks = (toolExec.executed_so_far || []).map(item => {
+        const blk = { tool_result: item.result };
+        return "```json\n" + JSON.stringify(blk, null, 2) + "\n```";
+      });
+
       const replyBlocks = approvalItems.map(it => {
         const replyDict = {
           tool_result: {
             tool: it.tool,
             success: false,
-            error: "Permission Denied: User rejected tool execution request."
+            error: "Permission Denied: User rejected tool execution request in the web UI."
           }
         };
         return "```json\n" + JSON.stringify(replyDict, null, 2) + "\n```";
       });
-      sendReplyToDeepSeekChat(replyBlocks.join("\n\n"));
+
+      const combined = [...prevBlocks, ...replyBlocks].filter(Boolean).join("\n\n");
+      sendReplyToDeepSeekChat(combined);
     });
   }
 

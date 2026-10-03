@@ -152,8 +152,17 @@ class MessageView(generics.GenericAPIView):
 
                 perm_check = PermissionManager.check_permission(tool_obj.category, PermissionMode(mode))
 
-                if not perm_check["allowed"]:
-                    reason = perm_check["reason"]
+                if perm_check.get("requires_approval"):
+                    print(f"⚠️ [Tool Requires Approval #{idx+1}] '{tool_name}' in '{mode}' mode: {perm_check['reason']}")
+                    approval_items.append({
+                        "index": idx,
+                        "tool": tool_name,
+                        "params": params,
+                        "reason": perm_check["reason"],
+                        "mode": mode
+                    })
+                elif not perm_check.get("allowed", True):
+                    reason = perm_check.get("reason", "Tool execution blocked.")
                     print(f"🚫 [Tool Blocked #{idx+1}] '{tool_name}' in '{mode}' mode: {reason}")
                     reply_block = {
                         "tool_result": {
@@ -165,15 +174,6 @@ class MessageView(generics.GenericAPIView):
                     }
                     executed_items.append({"tool": tool_name, "params": params, "result": reply_block["tool_result"]})
                     chat_reply_blocks.append(f"```json\n{json.dumps(reply_block, indent=2, ensure_ascii=False)}\n```")
-                elif perm_check["requires_approval"]:
-                    print(f"⚠️ [Tool Requires Approval #{idx+1}] '{tool_name}' in '{mode}' mode: {perm_check['reason']}")
-                    approval_items.append({
-                        "index": idx,
-                        "tool": tool_name,
-                        "params": params,
-                        "reason": perm_check["reason"],
-                        "mode": mode
-                    })
                 else:
                     # Permitted automatically
                     print(f"⚡ [Executing Tool #{idx+1}/{len(tool_calls)}] '{tool_name}' with params: {params}")
@@ -422,7 +422,7 @@ class ToolExecuteView(generics.GenericAPIView):
             params = resolve_tool_params(t_name, r_params, project_path)
 
             print(f"⚡ [Manual Execution Approved] Tool: '{t_name}' | Project: '{project_path}' | Params: {params}")
-            exec_res = ToolRegistry.execute_tool(t_name, params, mode=mode)
+            exec_res = ToolRegistry.execute_tool(t_name, params, mode=mode, bypass_approval=True)
             results.append({"tool": t_name, "params": params, "result": exec_res.to_dict()})
 
             reply_dict = {

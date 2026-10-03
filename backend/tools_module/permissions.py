@@ -65,18 +65,18 @@ class PermissionManager:
                 "reason": "Bypass permissions mode active: all operations are permitted automatically."
             }
 
-        # 2. Plan Mode: Read tools are allowed; edits and executions are blocked until plan is ready
+        # 2. Plan Mode: Read tools are allowed automatically; edits and executions require user confirmation
         if mode == PermissionMode.PLAN:
             if category == ToolCategory.READ:
                 return {
                     "allowed": True,
                     "requires_approval": False,
-                    "reason": "Plan mode: Read operations allowed for investigation."
+                    "reason": "Plan mode: Read operations allowed automatically for investigation."
                 }
             return {
-                "allowed": False,
+                "allowed": True,
                 "requires_approval": True,
-                "reason": "Plan mode active: Cannot execute file edits or commands directly. Create and submit an implementation plan first."
+                "reason": "حالت Plan: اجرای دستور یا تغییر فایل نیازمند تایید شما در وب است."
             }
 
         # 3. Accept Edits Mode: File edits allowed automatically, execute/dangerous requires approval

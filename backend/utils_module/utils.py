@@ -41,27 +41,28 @@ def get_default_environment():
 
 def get_permission_mode_instructions(mode_val: str) -> str:
     """Returns runtime instructions based on active permission mode."""
+    base_guidance = """- **Harness Permission & Approval Protocol**:
+  * All tools operate behind an automated harness security layer.
+  * Whenever you need to inspect files, edit code, create files, or run shell commands, ALWAYS emit the JSON tool call directly.
+  * NEVER ask for manual verbal permission in your text response (e.g. do NOT say "Can I edit this file?" or "Do I have permission to run this command?").
+  * If a requested tool exceeds the session's automated permission level, the harness web UI will automatically intercept it and prompt the user with an interactive Approval Card in the browser to approve or deny the action.
+  * If the user approves in the web UI, the tool executes and you receive the real output. If denied, you receive a permission-denied notification so you can adapt your strategy."""
+
     if mode_val == "plan":
-        return """- **Active Permission Mode**: `Plan` (Create a plan before making changes)
-  * You are in PLAN mode.
-  * You may use read-only tools (`read_file`, `list_dir`) to explore and understand the codebase.
-  * Do NOT execute file modification tools (`write_file`, `edit_file`) or destructive terminal commands directly.
-  * Formulate a clear, step-by-step implementation plan and present it to the user for approval first."""
-
+        mode_detail = """- **Current Mode Context**: `Plan`
+  * Prioritize formulating a clear, structured implementation plan before or alongside inspecting the repository.
+  * Read tools are permitted automatically; any modification or execution tool calls will be routed to the user's web UI for approval."""
     elif mode_val == "accept_edits":
-        return """- **Active Permission Mode**: `Accept edits` (Automatically accept all file edits)
-  * File read and modification tools (`read_file`, `write_file`, `edit_file`) will be applied automatically without confirmation prompts.
-  * Terminal command executions (`bash`) or dangerous operations will still require confirmation."""
-
+        mode_detail = """- **Current Mode Context**: `Accept edits`
+  * File read and modification tools execute automatically. Terminal commands or destructive actions will be prompted for approval in the user's web UI."""
     elif mode_val == "manual":
-        return """- **Active Permission Mode**: `Manual` (Always ask before making changes)
-  * Read-only inspection tools are executed freely.
-  * For any file modifications or terminal command executions, always ask the user for confirmation first."""
-
+        mode_detail = """- **Current Mode Context**: `Manual`
+  * File inspection tools execute automatically. File edits and terminal commands will be prompted for approval in the user's web UI."""
     else:  # bypass_permissions
-        return """- **Active Permission Mode**: `Bypass permissions` (Accepts all permissions)
-  * You have full autonomous permission to inspect files, edit/create files, and execute shell commands to accomplish the task.
-  * Still adhere strictly to safety rules (no unprompted destructive deletions or git resets)."""
+        mode_detail = """- **Current Mode Context**: `Bypass permissions`
+  * All standard tools execute automatically to achieve the task efficiently. Adhere to safety rules against unprompted destructive deletions."""
+
+    return f"{base_guidance}\n{mode_detail}"
 
 
 def build_system_prompt(params: dict) -> str:
