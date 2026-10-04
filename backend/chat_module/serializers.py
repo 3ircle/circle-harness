@@ -31,6 +31,8 @@ class SystemPromptSerializer(serializers.Serializer):
 
 
 class ChatSessionSerializer(serializers.ModelSerializer):
+    effective_path = serializers.ReadOnlyField()
+
     class Meta:
         model = ChatSession
         fields = [
@@ -40,8 +42,14 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             "project_name",
             "os",
             "shell",
+            "permission_mode",
+            "is_worktree_enabled",
+            "worktree_path",
+            "worktree_branch",
+            "base_ref",
+            "effective_path",
             "system_prompt",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at", "effective_path"]

@@ -192,6 +192,77 @@ async function executeToolInBackend(toolData) {
   }
 }
 
+// Worktree API bridges
+async function getWorktreeStatusInBackend(sessionId) {
+  const settings = await getSettings();
+  const baseUrl = getBaseUrl(settings.serverUrl);
+  const targetUrl = `${baseUrl}/chat/sessions/${encodeURIComponent(sessionId)}/worktree/status/`;
+
+  try {
+    const { response } = await fetchWithRetry(targetUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' }
+    });
+    if (response.ok) return await response.json();
+    return { success: false, error: `HTTP ${response.status}` };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+async function getWorktreeDiffInBackend(sessionId) {
+  const settings = await getSettings();
+  const baseUrl = getBaseUrl(settings.serverUrl);
+  const targetUrl = `${baseUrl}/chat/sessions/${encodeURIComponent(sessionId)}/worktree/diff/`;
+
+  try {
+    const { response } = await fetchWithRetry(targetUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' }
+    });
+    if (response.ok) return await response.json();
+    return { success: false, error: `HTTP ${response.status}` };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+async function mergeWorktreeInBackend(sessionId, mergeData) {
+  const settings = await getSettings();
+  const baseUrl = getBaseUrl(settings.serverUrl);
+  const targetUrl = `${baseUrl}/chat/sessions/${encodeURIComponent(sessionId)}/worktree/merge/`;
+
+  try {
+    const { response } = await fetchWithRetry(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(mergeData || {})
+    });
+    if (response.ok) return await response.json();
+    const text = await response.text();
+    return { success: false, error: `HTTP ${response.status}: ${text}` };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+async function discardWorktreeInBackend(sessionId) {
+  const settings = await getSettings();
+  const baseUrl = getBaseUrl(settings.serverUrl);
+  const targetUrl = `${baseUrl}/chat/sessions/${encodeURIComponent(sessionId)}/worktree/discard/`;
+
+  try {
+    const { response } = await fetchWithRetry(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
+    });
+    if (response.ok) return await response.json();
+    return { success: false, error: `HTTP ${response.status}` };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 // Forward chat message payload to localhost
 async function sendChatToServer(chatData) {
   const settings = await getSettings();
@@ -348,6 +419,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'EXECUTE_TOOL') {
     executeToolInBackend(request.toolData).then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'GET_WORKTREE_STATUS') {
+    getWorktreeStatusInBackend(request.sessionId).then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'GET_WORKTREE_DIFF') {
+    getWorktreeDiffInBackend(request.sessionId).then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'MERGE_WORKTREE') {
+    mergeWorktreeInBackend(request.sessionId, request.mergeData).then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'DISCARD_WORKTREE') {
+    discardWorktreeInBackend(request.sessionId).then(sendResponse);
     return true;
   }
 

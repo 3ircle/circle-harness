@@ -8,6 +8,7 @@ from rest_framework import status
 from .models import ChatSession, ChatMessage
 from .serializers import MessageSerializer, SystemPromptSerializer, ChatSessionSerializer
 from utils_module.utils import genarate_system_prompt, build_system_prompt, get_default_environment
+from utils_module.worktree import WorktreeManager
 from tools_module import ToolRegistry, PermissionMode, PermissionManager
 from tools_module.parser import parse_tool_calls
 
@@ -23,7 +24,8 @@ def resolve_session_and_project_path(session_id: str, client_project_path: str =
     """
     Finds ChatSession by session_id, or auto-binds new DeepSeek UUID to the most recent session,
     or falls back to client_project_path / the latest configured workspace.
-    Returns (chat_session, project_path, permission_mode).
+    Returns (chat_session, effective_path, permission_mode).
+    When worktree isolation is active, effective_path points to the isolated worktree directory.
     """
     chat_session = None
     if session_id:
@@ -45,18 +47,18 @@ def resolve_session_and_project_path(session_id: str, client_project_path: str =
             else:
                 chat_session = recent
 
-    project_path = ""
-    if chat_session and chat_session.project_path:
-        project_path = chat_session.project_path
+    effective_path = ""
+    if chat_session:
+        effective_path = chat_session.effective_path
     elif client_project_path:
-        project_path = client_project_path
+        effective_path = client_project_path
     else:
         last = ChatSession.objects.exclude(project_path="").order_by("-updated_at").first()
         if last:
-            project_path = last.project_path
+            effective_path = last.effective_path
 
     mode = chat_session.permission_mode if chat_session else "bypass_permissions"
-    return chat_session, project_path, mode
+    return chat_session, effective_path, mode
 
 
 def resolve_tool_params(tool_name: str, params: dict, project_path: str) -> dict:
@@ -262,6 +264,11 @@ class SessionDetailView(generics.GenericAPIView):
                         "os": session.os,
                         "shell": session.shell,
                         "permission_mode": session.permission_mode,
+                        "is_worktree_enabled": session.is_worktree_enabled,
+                        "worktree_path": session.worktree_path,
+                        "worktree_branch": session.worktree_branch,
+                        "base_ref": session.base_ref,
+                        "effective_path": session.effective_path,
                         "system_prompt": session.system_prompt,
                         "created_at": session.created_at.isoformat(),
                     },
@@ -299,10 +306,32 @@ class SessionCreateOrUpdateView(generics.GenericAPIView):
         project_path = data.get("project_path", "").strip()
         project_name = data.get("project_name", "").strip()
         permission_mode = data.get("permission_mode", "bypass_permissions").strip()
+        is_worktree_enabled = bool(data.get("is_worktree_enabled", False))
+        base_ref = data.get("base_ref", "HEAD").strip() or "HEAD"
+
+        worktree_path = ""
+        worktree_branch = ""
+
+        if is_worktree_enabled and project_path:
+            wt_mgr = WorktreeManager(project_path, session_id, base_ref=base_ref)
+            if wt_mgr.is_git_repo():
+                wt_res = wt_mgr.create_worktree()
+                if wt_res.get("success"):
+                    worktree_path = wt_res.get("worktree_path", "")
+                    worktree_branch = wt_res.get("branch", "")
+                    print(f"🌿 [Worktree Created] Isolated workspace at '{worktree_path}' on branch '{worktree_branch}'")
+                else:
+                    print(f"⚠️ [Worktree Creation Failed]: {wt_res.get('error')}")
+                    is_worktree_enabled = False
+            else:
+                print(f"ℹ️ [Worktree Skipped] Path '{project_path}' is not a Git repo. Standard workspace mode used.")
+                is_worktree_enabled = False
 
         if not project_name and project_path:
             clean_path = os.path.normpath(project_path)
             project_name = os.path.basename(clean_path) or "project"
+
+        effective_workspace = worktree_path if (is_worktree_enabled and worktree_path) else project_path
 
         defaults = get_default_environment()
         env_os = data.get("os") or defaults["os"]
@@ -311,7 +340,7 @@ class SessionCreateOrUpdateView(generics.GenericAPIView):
         prompt_params = {
             "os": env_os,
             "shell": env_shell,
-            "working_directory": project_path or defaults["working_directory"],
+            "working_directory": effective_workspace or defaults["working_directory"],
             "repository": project_name or defaults["repository"],
             "permission_mode": permission_mode,
             "has_tools": True,
@@ -326,13 +355,17 @@ class SessionCreateOrUpdateView(generics.GenericAPIView):
                 "os": env_os,
                 "shell": env_shell,
                 "permission_mode": permission_mode,
+                "is_worktree_enabled": is_worktree_enabled,
+                "worktree_path": worktree_path,
+                "worktree_branch": worktree_branch,
+                "base_ref": base_ref,
                 "system_prompt": system_prompt,
             },
         )
 
         filename = f"{project_name or 'project'}_system_prompt.md"
 
-        print(f"[ChatSession] {'Created' if created else 'Updated'} session '{session_id}' for project '{project_name}' (Mode: {permission_mode})")
+        print(f"[ChatSession] {'Created' if created else 'Updated'} session '{session_id}' for project '{project_name}' (Mode: {permission_mode} | Worktree: {is_worktree_enabled})")
 
         return Response(
             {
@@ -342,6 +375,11 @@ class SessionCreateOrUpdateView(generics.GenericAPIView):
                 "project_path": session.project_path,
                 "project_name": session.project_name,
                 "permission_mode": session.permission_mode,
+                "is_worktree_enabled": session.is_worktree_enabled,
+                "worktree_path": session.worktree_path,
+                "worktree_branch": session.worktree_branch,
+                "base_ref": session.base_ref,
+                "effective_path": session.effective_path,
                 "system_prompt": session.system_prompt,
                 "filename": filename,
             },
@@ -445,3 +483,122 @@ class ToolExecuteView(generics.GenericAPIView):
             "output": first_output,
             "chat_reply": full_chat_reply
         }, status=status.HTTP_200_OK)
+
+
+class WorktreeStatusView(generics.GenericAPIView):
+    """
+    Returns the current status, branch, and uncommitted modifications of the session's isolated worktree.
+    GET /chat/sessions/<session_id>/worktree/status/
+    """
+
+    def get(self, request, session_id, *args, **kwargs):
+        session = ChatSession.objects.filter(session_id=session_id.strip()).first()
+        if not session:
+            return Response({"error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not session.is_worktree_enabled or not session.project_path:
+            return Response({
+                "is_worktree_enabled": False,
+                "session_id": session.session_id,
+                "project_path": session.project_path,
+                "effective_path": session.effective_path
+            }, status=status.HTTP_200_OK)
+
+        mgr = WorktreeManager(session.project_path, session.session_id, base_ref=session.base_ref)
+        status_data = mgr.get_status()
+        status_data["session_id"] = session.session_id
+        status_data["is_worktree_enabled"] = session.is_worktree_enabled
+        status_data["worktree_path"] = session.worktree_path
+        status_data["effective_path"] = session.effective_path
+
+        return Response(status_data, status=status.HTTP_200_OK)
+
+
+class WorktreeDiffView(generics.GenericAPIView):
+    """
+    Returns cumulative unified diff between the worktree branch/working changes and the base reference.
+    GET /chat/sessions/<session_id>/worktree/diff/
+    """
+
+    def get(self, request, session_id, *args, **kwargs):
+        session = ChatSession.objects.filter(session_id=session_id.strip()).first()
+        if not session:
+            return Response({"error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not session.is_worktree_enabled or not session.worktree_path:
+            return Response({
+                "success": False,
+                "error": "Worktree is not enabled for this session."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        mgr = WorktreeManager(session.project_path, session.session_id, base_ref=session.base_ref)
+        diff_data = mgr.get_diff()
+        return Response(diff_data, status=status.HTTP_200_OK)
+
+
+class WorktreeMergeView(generics.GenericAPIView):
+    """
+    Merges isolated worktree changes back into the target branch of the main project repository.
+    POST /chat/sessions/<session_id>/worktree/merge/
+    Payload:
+      { "strategy": "squash"|"ff"|"merge", "commit_message": "...", "target_branch": "main" }
+    """
+
+    def post(self, request, session_id, *args, **kwargs):
+        session = ChatSession.objects.filter(session_id=session_id.strip()).first()
+        if not session:
+            return Response({"error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not session.is_worktree_enabled or not session.worktree_path:
+            return Response({
+                "success": False,
+                "error": "Worktree is not active for this session."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        strategy = request.data.get("strategy", "squash")
+        commit_message = request.data.get("commit_message")
+        target_branch = request.data.get("target_branch")
+
+        mgr = WorktreeManager(session.project_path, session.session_id, base_ref=session.base_ref)
+        merge_res = mgr.merge_worktree(
+            strategy=strategy,
+            commit_message=commit_message,
+            target_branch=target_branch
+        )
+
+        if merge_res.get("success"):
+            # Update session state: worktree merged and cleaned up
+            session.is_worktree_enabled = False
+            session.worktree_path = ""
+            session.worktree_branch = ""
+            session.save()
+            print(f"🌿 [Worktree Merged & Cleaned] Session '{session.session_id}' changes merged into '{merge_res.get('target_branch')}'")
+
+        return Response(merge_res, status=status.HTTP_200_OK if merge_res.get("success") else status.HTTP_400_BAD_REQUEST)
+
+
+class WorktreeDiscardView(generics.GenericAPIView):
+    """
+    Safely discards and cleans up the session's isolated worktree and deletes its branch.
+    POST /chat/sessions/<session_id>/worktree/discard/
+    """
+
+    def post(self, request, session_id, *args, **kwargs):
+        session = ChatSession.objects.filter(session_id=session_id.strip()).first()
+        if not session:
+            return Response({"error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if session.project_path:
+            mgr = WorktreeManager(session.project_path, session.session_id, base_ref=session.base_ref)
+            discard_res = mgr.discard_worktree(delete_branch=True)
+        else:
+            discard_res = {"success": True, "message": "No project path associated with session."}
+
+        session.is_worktree_enabled = False
+        session.worktree_path = ""
+        session.worktree_branch = ""
+        session.save()
+
+        print(f"🗑️ [Worktree Discarded] Session '{session.session_id}' isolated worktree cleared.")
+
+        return Response(discard_res, status=status.HTTP_200_OK)

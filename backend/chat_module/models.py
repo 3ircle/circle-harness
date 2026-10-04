@@ -19,6 +19,41 @@ class ChatSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At")
 
+    # Isolated Git Worktree Environment Fields
+    is_worktree_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Is Worktree Isolation Enabled"
+    )
+    worktree_path = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="Worktree Directory Path"
+    )
+    worktree_branch = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Worktree Branch Name"
+    )
+    base_ref = models.CharField(
+        max_length=255,
+        blank=True,
+        default="HEAD",
+        verbose_name="Worktree Base Ref"
+    )
+
+    @property
+    def effective_path(self) -> str:
+        """
+        Returns worktree_path if worktree isolation is active and the directory exists on disk,
+        otherwise falls back to the main project_path.
+        """
+        import os
+        if self.is_worktree_enabled and self.worktree_path and os.path.exists(self.worktree_path):
+            return self.worktree_path
+        return self.project_path
+
     class Meta:
         verbose_name = "Chat Session"
         verbose_name_plural = "Chat Sessions"

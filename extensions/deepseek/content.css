@@ -782,4 +782,249 @@
   color: #ffffff;
 }
 
+/* Isolated Git Worktree Workspace Styles */
+.ds-bridge-worktree-toggle-box {
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+}
+
+.ds-bridge-worktree-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ds-bridge-worktree-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #10b981;
+}
+
+.ds-bridge-worktree-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #6ee7b7;
+}
+
+.ds-bridge-worktree-desc {
+  font-size: 11.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin: 0;
+  padding-right: 24px;
+}
+
+.ds-bridge-worktree-desc code {
+  color: #38bdf8;
+  background: #0f172a;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+/* Toolbar Worktree Pill */
+.ds-bridge-worktree-wrapper {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.ds-bridge-worktree-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  height: 28px !important;
+  padding: 0 10px !important;
+  border-radius: 9999px !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  background: rgba(16, 185, 129, 0.1) !important;
+  color: #6ee7b7 !important;
+  transition: all 0.2s ease !important;
+  user-select: none !important;
+  outline: none !important;
+  margin: 0 4px !important;
+  white-space: nowrap !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.ds-bridge-worktree-pill:hover {
+  background: rgba(16, 185, 129, 0.2) !important;
+  border-color: #10b981 !important;
+  color: #a7f3d0 !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25) !important;
+}
+
+.ds-bridge-worktree-icon {
+  font-size: 12px;
+}
+
+.ds-bridge-worktree-branch {
+  font-family: monospace;
+  letter-spacing: 0.2px;
+}
+
+/* Worktree Popover Menu */
+.ds-bridge-worktree-popover {
+  position: fixed !important;
+  width: 310px !important;
+  background: #181d28 !important;
+  border: 1px solid #10b981 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 14px rgba(16, 185, 129, 0.2) !important;
+  padding: 12px !important;
+  z-index: 9999999 !important;
+  display: none;
+  flex-direction: column !important;
+  gap: 10px !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Vazirmatn", sans-serif !important;
+  user-select: none !important;
+  direction: rtl !important;
+  box-sizing: border-box !important;
+  animation: slideUpFade 0.2s ease !important;
+}
+
+.ds-bridge-worktree-popover.open {
+  display: flex !important;
+}
+
+.ds-bridge-worktree-pop-header {
+  border-bottom: 1px solid #2d3748;
+  padding-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ds-bridge-worktree-pop-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #6ee7b7;
+}
+
+.ds-bridge-worktree-pop-branch {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: monospace;
+  direction: ltr;
+  text-align: right;
+}
+
+.ds-bridge-worktree-pop-status {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.4;
+}
+
+.ds-bridge-worktree-pop-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ds-bridge-wt-action-btn {
+  width: 100%;
+  padding: 7px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.ds-bridge-wt-action-btn.view-diff {
+  background: #1e293b;
+  color: #60a5fa;
+  border-color: #3b82f6;
+}
+
+.ds-bridge-wt-action-btn.view-diff:hover {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+.ds-bridge-wt-action-btn.merge {
+  background: #065f46;
+  color: #a7f3d0;
+  border-color: #10b981;
+}
+
+.ds-bridge-wt-action-btn.merge:hover {
+  background: #047857;
+  color: #ffffff;
+}
+
+.ds-bridge-wt-action-btn.discard {
+  background: transparent;
+  color: #ef4444;
+  border-color: #ef4444;
+}
+
+.ds-bridge-wt-action-btn.discard:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* Diff Modal Box */
+.ds-bridge-diff-modal-box {
+  width: 780px !important;
+  max-width: 92vw !important;
+}
+
+.ds-bridge-diff-container {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 12px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11.5px;
+  color: #c9d1d9;
+  max-height: 480px;
+  overflow-y: auto;
+  direction: ltr;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Tool Approval Worktree Banner */
+.ds-bridge-tool-worktree-banner {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #6ee7b7;
+  font-weight: 500;
+}
+
+.ds-bridge-tool-worktree-banner code {
+  color: #38bdf8;
+  font-family: monospace;
+}
+
+
 

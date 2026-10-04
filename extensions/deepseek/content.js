@@ -21,6 +21,14 @@
   let lastConfiguredProjectName = '';
   let lastRegisteredUUID = null;
 
+  // Track active isolated Git worktree workspace
+  let currentWorktreeState = {
+    enabled: false,
+    path: '',
+    branch: '',
+    baseRef: 'HEAD'
+  };
+
   chrome.storage.local.get(['lastProjectPath', 'lastProjectName'], (res) => {
     if (res) {
       if (res.lastProjectPath) lastConfiguredProjectPath = res.lastProjectPath;
@@ -233,6 +241,16 @@
               <label class="ds-bridge-form-label">نام پروژه (اختیاری):</label>
               <input type="text" class="ds-bridge-form-input" id="ds-modal-project-name" placeholder="نام پروژه">
             </div>
+
+            <div class="ds-bridge-worktree-toggle-box">
+              <label class="ds-bridge-worktree-label">
+                <input type="checkbox" id="ds-modal-worktree-toggle" checked>
+                <span class="ds-bridge-worktree-title">🌿 ساخت محیط ایزوله کاری (Git Worktree)</span>
+              </label>
+              <p class="ds-bridge-worktree-desc">
+                تغییرات فایل و دستورات در یک شاخه موقت (<code>circle/session-...</code>) به صورت ایزوله اجرا می‌شوند و تا زمان ادغام (Merge)، پوشه اصلی پروژه شما دست‌نخورده باقی می‌ماند.
+              </p>
+            </div>
           </div>
           <div class="ds-bridge-modal-footer">
             <button type="button" class="ds-bridge-modal-btn-cancel" id="ds-modal-cancel-btn">انصراف</button>
@@ -287,11 +305,14 @@
         confirmBtn.disabled = true;
         confirmBtn.innerHTML = '<span>⏳ در حال تولید سیستم پرامپت...</span>';
 
+        const isWorktreeChecked = document.getElementById('ds-modal-worktree-toggle')?.checked ?? true;
+
         const sessionPayload = {
           session_id: sessionId,
           project_path: projectPath,
           project_name: projectName,
-          permission_mode: activePermissionMode
+          permission_mode: activePermissionMode,
+          is_worktree_enabled: isWorktreeChecked
         };
 
         chrome.runtime.sendMessage({ action: 'CREATE_SESSION', sessionData: sessionPayload }, (res) => {
@@ -301,10 +322,17 @@
           if (res && res.success) {
             lastConfiguredProjectPath = projectPath;
             lastConfiguredProjectName = projectName;
+            currentWorktreeState = {
+              enabled: Boolean(res.is_worktree_enabled),
+              path: res.worktree_path || '',
+              branch: res.worktree_branch || '',
+              baseRef: res.base_ref || 'HEAD'
+            };
             chrome.storage.local.set({
               lastProjectPath: projectPath,
               lastProjectName: projectName
             });
+            updateWorktreeUI();
             closeModal();
             if (typeof onConfirmed === 'function') {
               onConfirmed(res);
@@ -481,6 +509,14 @@
 
     const itemsPreviewHtml = approvalItems.map(item => formatToolDetailsHtml(item)).join('');
 
+    const worktreeBannerHtml = currentWorktreeState.enabled && currentWorktreeState.branch
+      ? `<div class="ds-bridge-tool-worktree-banner">
+           <span>🌿 محیط ایزوله فعال:</span>
+           <code>${escapeHtml(currentWorktreeState.branch)}</code>
+           <span style="font-size: 10.5px; color: #10b981; margin-right: auto;">(پروژه اصلی دست‌نخورده می‌ماند)</span>
+         </div>`
+      : '';
+
     card.innerHTML = `
       <div class="ds-bridge-tool-header">
         <div class="ds-bridge-tool-title">
@@ -489,6 +525,8 @@
         </div>
         <span class="ds-bridge-tool-status-tag">نیازمند تایید</span>
       </div>
+
+      ${worktreeBannerHtml}
 
       <div class="ds-bridge-tool-reason">${reasonText}</div>
 
@@ -876,6 +914,9 @@
     // Inject Permission Mode pill right next to toggleBtn
     injectPermissionModePill(targetToolbar, toggleBtn);
 
+    // Inject Isolated Worktree pill next to permission mode pill
+    injectWorktreePill(targetToolbar, document.getElementById('ds-bridge-mode-wrapper') || toggleBtn);
+
     console.log('[DeepSeek Bridge] Injected Auto-Send pill toggle in DeepSeek toolbar!');
   }
 
@@ -1030,6 +1071,240 @@
 
     updateModePillUI();
     console.log('[DeepSeek Bridge] Injected Permission Mode pill dropdown into DeepSeek toolbar!');
+  }
+
+  // --- Isolated Git Worktree Pill & Management Popover ---
+  function injectWorktreePill(targetToolbar, insertAfterEl) {
+    if (document.getElementById('ds-bridge-worktree-wrapper')) {
+      updateWorktreeUI();
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.id = 'ds-bridge-worktree-wrapper';
+    wrapper.className = 'ds-bridge-worktree-wrapper';
+    wrapper.style.display = currentWorktreeState.enabled ? 'inline-flex' : 'none';
+
+    wrapper.innerHTML = `
+      <button type="button" class="ds-bridge-worktree-pill" id="ds-bridge-worktree-btn" title="مدیریت محیط ایزوله Git Worktree (کلیک برای مشاهده تغییرات یا ادغام)">
+        <span class="ds-bridge-worktree-icon">🌿</span>
+        <span class="ds-bridge-worktree-branch" id="ds-bridge-worktree-label">${escapeHtml(currentWorktreeState.branch || 'Worktree')}</span>
+        <span style="font-size: 10px; opacity: 0.7;">▾</span>
+      </button>
+    `;
+
+    // Worktree Popover Menu
+    let popover = document.getElementById('ds-bridge-worktree-popover');
+    if (!popover) {
+      popover = document.createElement('div');
+      popover.id = 'ds-bridge-worktree-popover';
+      popover.className = 'ds-bridge-worktree-popover';
+
+      popover.innerHTML = `
+        <div class="ds-bridge-worktree-pop-header">
+          <div class="ds-bridge-worktree-pop-title">🌿 محیط ایزوله کاری (Git Worktree)</div>
+          <div class="ds-bridge-worktree-pop-branch" id="ds-wt-pop-branch">شاخه: ${escapeHtml(currentWorktreeState.branch || '')}</div>
+        </div>
+        <div class="ds-bridge-worktree-pop-status" id="ds-wt-pop-status">
+          در حال بررسی تغییرات...
+        </div>
+        <div class="ds-bridge-worktree-pop-actions">
+          <button type="button" class="ds-bridge-wt-action-btn view-diff" id="ds-wt-diff-btn">
+            <span>🔍 مشاهده تغییرات (Diff)</span>
+          </button>
+          <button type="button" class="ds-bridge-wt-action-btn merge" id="ds-wt-merge-btn">
+            <span>🔀 ادغام در پروژه اصلی (Merge)</span>
+          </button>
+          <button type="button" class="ds-bridge-wt-action-btn discard" id="ds-wt-discard-btn">
+            <span>🗑️ لغو و پاکسازی ورک‌تری</span>
+          </button>
+        </div>
+      `;
+      document.body.appendChild(popover);
+    }
+
+    if (insertAfterEl && insertAfterEl.nextSibling) {
+      targetToolbar.insertBefore(wrapper, insertAfterEl.nextSibling);
+    } else {
+      targetToolbar.appendChild(wrapper);
+    }
+
+    const wtBtn = wrapper.querySelector('#ds-bridge-worktree-btn');
+
+    function positionWtPopover() {
+      if (!wtBtn) return;
+      const rect = wtBtn.getBoundingClientRect();
+      const popoverWidth = 300;
+      let left = rect.left;
+      if (left + popoverWidth > window.innerWidth - 16) {
+        left = window.innerWidth - popoverWidth - 16;
+      }
+      popover.style.left = `${Math.max(12, left)}px`;
+      popover.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+    }
+
+    wtBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const willOpen = !popover.classList.contains('open');
+      if (willOpen) {
+        positionWtPopover();
+        refreshWorktreePopoverStatus();
+        popover.classList.add('open');
+      } else {
+        popover.classList.remove('open');
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!wrapper.contains(e.target) && !popover.contains(e.target)) {
+        popover.classList.remove('open');
+      }
+    });
+
+    // Action handlers inside Worktree Popover
+    popover.querySelector('#ds-wt-diff-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      popover.classList.remove('open');
+      openWorktreeDiffModal();
+    });
+
+    popover.querySelector('#ds-wt-merge-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      popover.classList.remove('open');
+      handleWorktreeMerge();
+    });
+
+    popover.querySelector('#ds-wt-discard-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      popover.classList.remove('open');
+      handleWorktreeDiscard();
+    });
+
+    updateWorktreeUI();
+  }
+
+  function updateWorktreeUI() {
+    const wrapper = document.getElementById('ds-bridge-worktree-wrapper');
+    const label = document.getElementById('ds-bridge-worktree-label');
+    const branchDisplay = document.getElementById('ds-wt-pop-branch');
+    if (!wrapper) return;
+
+    if (currentWorktreeState.enabled && currentWorktreeState.branch) {
+      wrapper.style.display = 'inline-flex';
+      if (label) label.textContent = currentWorktreeState.branch;
+      if (branchDisplay) branchDisplay.textContent = `شاخه: ${currentWorktreeState.branch}`;
+    } else {
+      wrapper.style.display = 'none';
+    }
+  }
+
+  function refreshWorktreePopoverStatus() {
+    const statusBox = document.getElementById('ds-wt-pop-status');
+    if (!statusBox) return;
+    statusBox.textContent = 'در حال بررسی تغییرات...';
+
+    const sessionId = getCurrentSessionId();
+    chrome.runtime.sendMessage({ action: 'GET_WORKTREE_STATUS', sessionId }, (res) => {
+      if (!res || !res.is_git) {
+        statusBox.innerHTML = '<span style="color: #ef4444;">مخزن گیت یافت نشد.</span>';
+        return;
+      }
+      if (!res.is_worktree_active) {
+        statusBox.innerHTML = '<span style="color: #94a3b8;">ورک‌تری فعالی روی دیسک نیست.</span>';
+        return;
+      }
+      const uncommittedCount = (res.uncommitted_files || []).length;
+      const statText = res.shortstat || (uncommittedCount ? `${uncommittedCount} فایل تغییر یافته` : 'بدون تغییر');
+      statusBox.innerHTML = `
+        <div style="font-size: 11.5px; color: #cbd5e1;">📊 وضعیت: <strong>${escapeHtml(statText)}</strong></div>
+        <div style="font-size: 10.5px; color: #94a3b8; margin-top: 3px;">کامیت‌ها جلوتر از پایه: ${res.commits_ahead || 0}</div>
+      `;
+    });
+  }
+
+  function openWorktreeDiffModal() {
+    let overlay = document.getElementById('ds-bridge-diff-modal-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'ds-bridge-diff-modal-overlay';
+      overlay.className = 'ds-bridge-modal-overlay';
+      overlay.innerHTML = `
+        <div class="ds-bridge-modal-box ds-bridge-diff-modal-box">
+          <div class="ds-bridge-modal-header">
+            <div class="ds-bridge-modal-title">
+              <span>🔍 تغییرات محیط ایزوله (Diff)</span>
+            </div>
+            <button class="ds-bridge-modal-close" id="ds-diff-modal-close-btn">&times;</button>
+          </div>
+          <div class="ds-bridge-modal-body">
+            <div class="ds-bridge-diff-container" id="ds-diff-content-box">
+              در حال دریافت تغییرات...
+            </div>
+          </div>
+          <div class="ds-bridge-modal-footer">
+            <button type="button" class="ds-bridge-modal-btn-cancel" id="ds-diff-modal-done-btn">بستن</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      overlay.querySelector('#ds-diff-modal-close-btn')?.addEventListener('click', () => overlay.classList.remove('open'));
+      overlay.querySelector('#ds-diff-modal-done-btn')?.addEventListener('click', () => overlay.classList.remove('open'));
+    }
+
+    const diffBox = document.getElementById('ds-diff-content-box');
+    if (diffBox) diffBox.textContent = 'در حال دریافت تغییرات از ورک‌تری...';
+    overlay.classList.add('open');
+
+    const sessionId = getCurrentSessionId();
+    chrome.runtime.sendMessage({ action: 'GET_WORKTREE_DIFF', sessionId }, (res) => {
+      if (res && res.success && res.diff) {
+        diffBox.textContent = res.diff;
+      } else if (res && res.success && !res.diff) {
+        diffBox.innerHTML = '<span style="color: #10b981;">هنوز تغییری در ورک‌تری ایجاد نشده است (کدها با شاخه اصلی یکسان است).</span>';
+      } else {
+        diffBox.textContent = (res && res.error) || 'خطا در دریافت diff.';
+      }
+    });
+  }
+
+  function handleWorktreeMerge() {
+    const commitMsg = prompt('عنوان کامیت برای ادغام (Squash Merge) در پروژه اصلی:', `Merge changes from session ${getCurrentSessionId().substring(0, 8)}`);
+    if (commitMsg === null) return; // User cancelled
+
+    showToast('⏳ در حال ادغام تغییرات ورک‌تری در پروژه اصلی...', 'info', 4000);
+    const sessionId = getCurrentSessionId();
+    chrome.runtime.sendMessage({
+      action: 'MERGE_WORKTREE',
+      sessionId,
+      mergeData: { strategy: 'squash', commit_message: commitMsg }
+    }, (res) => {
+      if (res && res.success) {
+        currentWorktreeState.enabled = false;
+        updateWorktreeUI();
+        showToast(`✓ تغییرات با موفقیت در شاخه اصلی ادغام شد و ورک‌تری پاکسازی گردید!`, 'success', 6000);
+      } else {
+        showToast(`خطا در ادغام: ${(res && res.error) || 'نامشخص'}`, 'error', 6000);
+      }
+    });
+  }
+
+  function handleWorktreeDiscard() {
+    const confirmed = confirm('آیا مطمئن هستید که می‌خواهید تمام تغییرات ایزوله این ورک‌تری را دور بریزید؟ این عملیات غیرقابل بازگشت است.');
+    if (!confirmed) return;
+
+    showToast('⏳ در حال پاکسازی ورک‌تری...', 'info');
+    const sessionId = getCurrentSessionId();
+    chrome.runtime.sendMessage({ action: 'DISCARD_WORKTREE', sessionId }, (res) => {
+      if (res && res.success) {
+        currentWorktreeState.enabled = false;
+        updateWorktreeUI();
+        showToast('✓ ورک‌تری با موفقیت پاکسازی و لغو شد', 'info');
+      } else {
+        showToast(`خطا در پاکسازی: ${(res && res.error) || 'نامشخص'}`, 'error');
+      }
+    });
   }
 
   function updateAllToggleUI() {
